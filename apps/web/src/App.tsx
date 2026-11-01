@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { memo, useEffect, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateProfile, type User } from 'firebase/auth';
 import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import * as Y from 'yjs';
@@ -61,7 +61,7 @@ function TaskNode({ data }: NodeProps<Node<{ task: TaskSpec }>>) {
   return <div className="task-node"><Handle type="target" position={Position.Left}/><div className="eyebrow" style={{fontSize:8}}>{data.task.kind === 'reduce' ? 'Reduce · integrate' : 'Map · build'}</div><strong>{data.task.title}</strong><small>{data.task.dependencies.length ? 'Waits for ' + data.task.dependencies.length + ' inputs' : 'Ready when run starts'}</small><Handle type="source" position={Position.Right}/></div>;
 }
 const nodeTypes = { task: TaskNode };
-function ExecutionGraph({ tasks }: { tasks: TaskSpec[] }) {
+const ExecutionGraph = memo(function ExecutionGraph({ tasks }: { tasks: TaskSpec[] }) {
   const depths = new Map<string, number>();
   const depth = (id: string): number => {
     if (depths.has(id)) return depths.get(id)!;
@@ -77,7 +77,7 @@ function ExecutionGraph({ tasks }: { tasks: TaskSpec[] }) {
   });
   const edges = tasks.flatMap(t=>t.dependencies.map(id=>({id:id+'-'+t.id,source:id,target:t.id,style:{stroke:'#b2a1cc'}})));
   return <div className="graph-wrap" aria-label="Execution dependency graph"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{padding:.18}} nodesDraggable={false} nodesConnectable={false} minZoom={.2}><Background gap={20} color="#eee8f4"/><Controls showInteractive={false}/></ReactFlow></div>;
-}
+}, (previous, next) => JSON.stringify(previous.tasks) === JSON.stringify(next.tasks));
 
 function RoomView({ firebase, user, room, view, onInvite }: { firebase: Firebase; user: User; room: Room; view: string; onInvite: ()=>void }) {
   const [provider, setProvider] = useState<FirestoreDocument | null>(null);
