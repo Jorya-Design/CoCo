@@ -1,5 +1,7 @@
 # CoCo
 
+[Live app](https://coco-3471c.web.app/)
+
 A multiplayer planning workspace for a Codex worker harness.
 
 **App:** https://coco-3471c.web.app · **Firebase project:** coco-3471c · **Data region:** London (europe-west2)
