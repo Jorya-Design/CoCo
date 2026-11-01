@@ -23,6 +23,8 @@ export class PlanAgent {
   constructor(private baseSha:string) {}
   async owns(workerId:string) {return (await this.db.doc(`workerLeases/${workerId}`).get()).data()?.kind==='plan';}
   private async apply(tx:Transaction, ref:DocumentReference, roomId:string, edits:PlanEdit[]) {
+    const room=await tx.get(this.db.doc(`rooms/${roomId}`));
+    if(!room.exists||room.data()?.deleting){tx.update(ref,{status:'cancelled'});return;}
     const updates=await tx.get(this.db.collection(`rooms/${roomId}/updates`));
     const document=documentFromUpdates(updates);
     try {
@@ -72,7 +74,7 @@ export class PlanAgent {
           tx.get(roomRef.collection('messages').orderBy('createdAt','desc').limit(30)),
           tx.get(request.mode==='implementation' ? roomRef.collection('interviews').orderBy('createdAt') : roomRef.collection('interviews').orderBy('createdAt','desc').limit(100))]);
         const mode=planModeSchema.safeParse(request.mode);
-        if(room.data()?.orgId!=='coco-co'||!org.data()?.memberEmails?.includes(request.requestedByEmail)||!mode.success
+        if(room.data()?.deleting||room.data()?.orgId!=='coco-co'||!org.data()?.memberEmails?.includes(request.requestedByEmail)||!mode.success
           ||typeof request.prompt!=='string'||!request.prompt.trim()||request.prompt.length>8000) {
           tx.update(candidate.ref,{status:'failed',error:'Request is no longer authorized.'});return null;
         }
@@ -111,7 +113,8 @@ export class PlanAgent {
       const ref=this.db.doc(`${path}/${command.runId}`);
       const [snap,org,context]=await Promise.all([tx.get(ref),tx.get(this.db.doc('organizations/coco-co')),tx.get(this.db.doc(`planContexts/${command.runId}`))]);
       const request=snap.data();
-      if(request?.status!=='running'||!org.data()?.memberEmails?.includes(request.requestedByEmail)) {
+      const room=await tx.get(this.db.doc(`rooms/${command.roomId}`));
+      if(!room.exists||room.data()?.deleting||request?.status!=='running'||!org.data()?.memberEmails?.includes(request.requestedByEmail)) {
         tx.update(leaseRef,{status:'cancelled'});
         if(request?.status==='running')tx.update(ref,{status:'failed',error:'Membership changed.'});
         tx.delete(context.ref);return false;

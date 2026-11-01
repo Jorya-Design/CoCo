@@ -337,3 +337,7 @@ input, textarea { color: var(--foreground); }
 .implementation-step strong { display: block; font-size: 12px; font-weight: 500; margin-top: 6px; }
 .implementation-step .hint { margin-top: 5px; }
 .implementation-step button { margin-top: 10px; max-width: 100%; white-space: normal; height: auto; min-height: 30px; }
+
+.room-entry { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.room-entry .room-link { flex: 1; min-width: 0; }
+.room-entry > button:last-child { flex-shrink: 0; }

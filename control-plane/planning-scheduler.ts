@@ -42,7 +42,7 @@ export class PlanningScheduler {
         ]);
         if (workerLease.data()?.status === 'active' || roomLease.exists) return null;
         const source = message.data();
-        if (room.data()?.orgId !== 'coco-co' || !org.data()?.memberEmails?.includes(request.requestedByEmail)
+        if (room.data()?.deleting || room.data()?.orgId !== 'coco-co' || !org.data()?.memberEmails?.includes(request.requestedByEmail)
           || !source || source.agent || source.authorUid !== request.requestedBy || request.messageId !== candidate.id) {
           tx.update(candidate.ref,{status:'failed'});
           if (message.exists) tx.update(messageRef,{replyStatus:'failed',replyError:'Codex could not verify this member message.'});
@@ -81,7 +81,8 @@ export class PlanningScheduler {
       const messageRef = this.db.doc(`rooms/${command.roomId}/messages/${command.runId}`);
       const roomLeaseRef = this.db.doc(`planningRoomLeases/${command.roomId}`);
       const [request,org] = await Promise.all([tx.get(requestRef),tx.get(this.db.doc('organizations/coco-co'))]);
-      if (request.data()?.status !== 'running' || !org.data()?.memberEmails?.includes(request.data()?.requestedByEmail)) {
+      const room=await tx.get(this.db.doc(`rooms/${command.roomId}`));
+      if (!room.exists || room.data()?.deleting || request.data()?.status !== 'running' || !org.data()?.memberEmails?.includes(request.data()?.requestedByEmail)) {
         tx.update(leaseRef,{status:'cancelled'});tx.delete(roomLeaseRef);
         tx.update(requestRef,{status:'failed'});
         tx.update(messageRef,{replyStatus:'failed',replyError:'Membership changed before Codex could reply.'});

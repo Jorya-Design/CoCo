@@ -33,7 +33,7 @@ else {
   const members = org.fields.memberEmails.arrayValue.values.map((value: {stringValue: string}) => value.stringValue).sort();
   if (JSON.stringify(members) !== JSON.stringify([...ORGANIZATION_MEMBERS].sort())) throw new Error('Existing org membership differs; review it before changing access.');
 }
-if (!room) {
+if (!room && process.argv.includes('--demo-room')) {
   const document = new Y.Doc();
   document.getText('plan').insert(0, '# Multiplayer Codex harness\n\n## Outcome\nHelp a team turn an idea into a shared plan, then execute coding tasks in parallel.\n\n## CoCo Co\nA public hackathon workspace. Everyone can view the plan and conversation; its two verified members can edit.\n\n## Stack\n- React + TypeScript with shadcn/ui\n- Firebase Hosting and Authentication\n- Yjs CRDT updates stored and streamed through Firestore in London\n- Codex sessions on a Linux host for the execution milestone\n\n## Planning workflow\nDiscuss the idea, use the guided interview, refine this plan together, then agree on it and ask Codex to create the implementation plan.\n\n## Implementation planning\nCodex will subdivide the agreed plan into tasks at the end of the conversation. No implementation tasks are created in advance.\n\n## Next milestones\n- Configure the Google support email, then add Google sign-in\n- Connect the Linux Codex runtime and durable scheduler\n- Add adaptive interviews and animated agent suggestions\n');
   create(roomPath, { title: { stringValue: 'Multiplayer Codex harness' }, ownerUid: { stringValue: 'organization-bootstrap' }, orgId: { stringValue: ORGANIZATION_ID }, createdAt: now });

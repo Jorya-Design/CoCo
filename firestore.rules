@@ -6,10 +6,12 @@ service cloud.firestore {
         && request.auth.token.email.lower() in get(/databases/$(database)/documents/organizations/coco-co).data.memberEmails;
     }
     function publicRoom(roomId) {
-      return get(/databases/$(database)/documents/rooms/$(roomId)).data.get('orgId', '') == 'coco-co';
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data.get('orgId', '') == 'coco-co'
+        && !get(/databases/$(database)/documents/rooms/$(roomId)).data.get('deleting', false);
     }
     function orgRoomAfter(roomId) {
-      return getAfter(/databases/$(database)/documents/rooms/$(roomId)).data.get('orgId', '') == 'coco-co';
+      return getAfter(/databases/$(database)/documents/rooms/$(roomId)).data.get('orgId', '') == 'coco-co'
+        && !getAfter(/databases/$(database)/documents/rooms/$(roomId)).data.get('deleting', false);
     }
     match /organizations/coco-co {
       allow read: if true;
@@ -17,6 +19,20 @@ service cloud.firestore {
       match /runtime/worker-health {
         allow read: if true;
         allow write: if false;
+      }
+      match /roomDeletionRequests/{roomId} {
+        allow read: if orgMember();
+        allow create: if orgMember() && publicRoom(roomId)
+          && request.resource.data.keys().hasOnly(['requestedBy','requestedByEmail','status','createdAt'])
+          && request.resource.data.requestedBy == request.auth.uid
+          && request.resource.data.requestedByEmail == request.auth.token.email.lower()
+          && request.resource.data.status == 'queued' && request.resource.data.createdAt == request.time;
+        allow update: if orgMember() && publicRoom(roomId) && resource.data.status == 'failed'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['requestedBy','requestedByEmail','createdAt','status'])
+          && request.resource.data.requestedBy == request.auth.uid
+          && request.resource.data.requestedByEmail == request.auth.token.email.lower()
+          && request.resource.data.status == 'queued' && request.resource.data.createdAt == request.time;
+        allow delete: if false;
       }
       match /planRequests/{requestId} {
         allow read: if orgMember();

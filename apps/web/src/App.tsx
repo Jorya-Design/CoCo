@@ -8,13 +8,13 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile, type OAuthCredential, type User } from 'firebase/auth';
 import type { FirebaseError } from 'firebase/app';
 import { addDoc, collection, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
-import { ArrowRight, Check, CheckCheck, ChevronRight, CircleHelp, FileText, FolderGit2, GitBranch, GitPullRequest, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Pencil, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
+import { ArrowRight, Check, CheckCheck, ChevronRight, CircleHelp, FileText, FolderGit2, GitBranch, GitPullRequest, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Pencil, Plus, Send, Sparkles, Sun, Terminal, Trash2, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { Firebase } from '@/lib/firebase';
-import { createRoom, sendMessage, type ChatMessage, type Room } from '@/lib/rooms';
+import { createRoom, deleteRoom, sendMessage, type ChatMessage, type Room } from '@/lib/rooms';
 import { FirestoreDocument, type SyncState } from '@/lib/collaboration';
 import { ExecutionGraph } from '@/components/execution-graph';
 import { TaskInspector } from '@/components/task-inspector';
@@ -329,6 +329,8 @@ export function App({ firebase }: { firebase: Firebase }) {
   const [view,setView] = useState('plan');
   const [authOpen,setAuthOpen] = useState(false);
   const [authBusy,setAuthBusy] = useState(false);
+  const [deleteTarget,setDeleteTarget] = useState<Room|null>(null);
+  const [deletionPending,setDeletionPending] = useState<string[]>([]);
   const [dialog,setDialog] = useState<'create'|'members'|null>(null);
   const [value,setValue] = useState('');
   const [error,setError] = useState('');
@@ -344,19 +346,39 @@ export function App({ firebase }: { firebase: Firebase }) {
   const canEdit=!!user?.emailVerified && !!user.email && organization.memberEmails.includes(user.email.toLowerCase());
 
   useEffect(()=>onAuthStateChanged(firebase.auth,setUser),[firebase]);
+  useEffect(()=>{
+    if(!canEdit)return;
+    return onSnapshot(collection(firebase.db,'organizations',ORGANIZATION_ID,'roomDeletionRequests'),snapshot=>{
+      setDeletionPending(snapshot.docs.filter(item=>['queued','deleting'].includes(item.data().status)).map(item=>item.id));
+      const failed=snapshot.docs.find(item=>item.data().status==='failed');
+      if(failed)setError(failed.data().error||'A room could not be deleted.');
+    },e=>setError(e.message));
+  },[firebase,canEdit]);
+
   useEffect(()=>onSnapshot(doc(firebase.db,'organizations',ORGANIZATION_ID),snapshot=>{
     if(snapshot.exists())setOrganization(snapshot.data() as Organization);
   },e=>setError(e.message)),[firebase]);
   useEffect(()=>onSnapshot(query(collection(firebase.db,'rooms'),where('orgId','==',ORGANIZATION_ID)),snapshot=>{
-    const result=snapshot.docs.map(d=>({id:d.id,...d.data()} as Room)).sort((a,b)=>(a.createdAt?.toMillis()||0)-(b.createdAt?.toMillis()||0));
+    const result=snapshot.docs.map(d=>({id:d.id,...d.data()} as Room)).filter(room=>!room.deleting).sort((a,b)=>(a.createdAt?.toMillis()||0)-(b.createdAt?.toMillis()||0));
     setRooms(result);
-    setRoomId(current=>current || result[0]?.id || null);
+    setRoomId(current=>result.some(room=>room.id===current)?current:result[0]?.id??null);
   },e=>setError(e.message)),[firebase]);
   useEffect(()=>{
     const pop=()=>setRoomId(new URLSearchParams(location.search).get('room'));
     window.addEventListener('popstate',pop);
     return()=>window.removeEventListener('popstate',pop);
   },[]);
+  useEffect(()=>{
+    const url=new URL(location.href);
+    if(roomId)url.searchParams.set('room',roomId);else url.searchParams.delete('room');
+    history.replaceState(null,'',url);
+  },[roomId]);
+  async function confirmDelete() {
+    if(!deleteTarget||!user||!canEdit||busy)return;
+    setBusy(true);setError('');
+    try {await deleteRoom(firebase.db,deleteTarget.id,user);setDeletionPending(ids=>[...ids,deleteTarget.id]);setDeleteTarget(null);}
+    catch(e){setError(readable(e));}finally{setBusy(false);}
+  }
   const room=rooms.find(r=>r.id===roomId);
   function navigate(id:string) { history.pushState(null,'','/?room='+id);setRoomId(id);setView('plan'); }
   function openDialog(type:'create'|'members') { setValue('');setError('');setDialog(type); }
@@ -380,7 +402,7 @@ export function App({ firebase }: { firebase: Firebase }) {
       <div><div className="eyebrow">Org rooms <span className="float-right">{rooms.length}</span></div>
         <details className="repo-group" open>
           <summary className="repo-toggle"><ChevronRight size={12} className="repo-chevron" aria-hidden="true"/><FolderGit2 size={14} aria-hidden="true"/><span>CoCo</span><span className="repo-kind">Repo</span></summary>
-          <nav className="room-list" aria-label="CoCo planning rooms">{rooms.map(r=><button className={'room-link '+(r.id===roomId?'active':'')} key={r.id} onClick={()=>navigate(r.id)}><MessageSquare size={13}/><span className="truncate">{r.title}</span></button>)}{!rooms.length&&<p className="hint">The demo room is getting ready.</p>}</nav>
+          <nav className="room-list" aria-label="CoCo planning rooms">{rooms.map(r=><div className="room-entry" key={r.id}><button className={'room-link '+(r.id===roomId?'active':'')} onClick={()=>navigate(r.id)}><MessageSquare size={13}/><span className="truncate">{r.title}</span></button>{canEdit&&<Button variant="ghost" size="icon-xs" aria-label={`Delete room ${r.title}`} disabled={deletionPending.includes(r.id)} onClick={()=>{setError('');setDeleteTarget(r);}}>{deletionPending.includes(r.id)?<LoaderCircle size={12} className="animate-spin"/>:<Trash2 size={12}/>}</Button>}</div>)}{!rooms.length&&<p className="hint">No rooms yet. Create a room to start planning.</p>}</nav>
         </details>
       </div>
       <div className="mt-2"><div className="eyebrow">Workspace</div><button className="room-link mt-2" onClick={()=>openDialog('members')}><Users size={13}/> Members <span className="ml-auto text-[10px]">{organization.memberEmails.length}</span></button><a className="room-link" href="https://github.com/Jorya-Design/CoCo" target="_blank" rel="noreferrer"><GitBranch size={13}/> Source & documentation</a></div>
@@ -395,6 +417,12 @@ export function App({ firebase }: { firebase: Firebase }) {
       </>:<main className="empty"><div className="eyebrow">{organization.name} · public demo</div><h1>Think together.<br/>Build in parallel.</h1><p>A shared room for the conversation, a living plan for the details, and a clear path from idea to implementation. Browse the workspace freely; its two members can sign in to edit.</p>{canEdit?<Button onClick={()=>openDialog('create')}><Plus size={14}/> Create a planning room</Button>:<Button onClick={()=>setAuthOpen(true)}>Member sign-in <ArrowRight size={14}/></Button>}</main>}
       {error&&!dialog&&<div className="alert mx-6" role="alert">{error}</div>}
     </div>
+    <Dialog open={!!deleteTarget} onOpenChange={open=>{if(!open&&!busy)setDeleteTarget(null);}}>
+      <DialogContent><DialogHeader><DialogTitle>Delete “{deleteTarget?.title}”?</DialogTitle><DialogDescription>This permanently removes the room, conversation, plan, interview history and implementation records for everyone. Any queued or running work will be cancelled.</DialogDescription></DialogHeader>
+        {error&&<div role="alert" className="alert">{error}</div>}
+        <div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={()=>setDeleteTarget(null)}>Keep room</Button><Button disabled={busy} onClick={()=>void confirmDelete()}>{busy?<LoaderCircle size={14} className="animate-spin"/>:<Trash2 size={14}/>} Delete room</Button></div>
+      </DialogContent>
+    </Dialog>
     <Dialog open={dialog!==null} onOpenChange={open=>{if(!open)setDialog(null);}}>
       <DialogContent><DialogHeader><DialogTitle>{dialog==='create'?'What are we building?':organization.name+' members'}</DialogTitle><DialogDescription>{dialog==='create'?'Give this room a name. Everything in this demo org is publicly viewable.':'These two members can edit after signing in with a verified email. Everyone else can browse read-only.'}</DialogDescription></DialogHeader>
         {dialog==='create'?<form onSubmit={e=>void submitDialog(e)} className="space-y-4"><Input autoFocus aria-label="Room name" placeholder="e.g. Multiplayer Codex harness" maxLength={120} required value={value} onChange={e=>setValue(e.target.value)}/>{error&&<div role="alert" className="alert">{error}</div>}<Button type="submit" disabled={busy||!value.trim()||!canEdit} className="w-full">{busy?<LoaderCircle size={14} className="animate-spin"/>:<Plus size={14}/>} Create room</Button></form>:<div className="space-y-4 mt-2">{organization.memberEmails.map(email=><div className="person" key={email}><span className="avatar">{initials(email)}</span><div><strong className="text-xs font-medium">{email}</strong><p className="text-[10px] text-muted-foreground">Member · editor</p></div></div>)}</div>}

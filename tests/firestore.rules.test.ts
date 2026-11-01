@@ -322,3 +322,17 @@ test('implementation requests require an agreed snapshot and matching room messa
   await assertFails(queue('blank-agreement','   '));
   await assertSucceeds(queue('agreed','Build an offline notes app.'));
 });
+
+test('only verified members can request room deletion and cannot forge completion or delete directly',async()=>{
+  const data={requestedBy:'alice',requestedByEmail:email('alice'),status:'queued',createdAt:serverTimestamp()};
+  const path=['organizations','coco-co','roomDeletionRequests','demo'] as const;
+  await assertFails(setDoc(doc(guest(),...path),data));
+  await assertFails(setDoc(doc(client('eve'),...path),{...data,requestedBy:'eve',requestedByEmail:email('eve')}));
+  await assertFails(setDoc(doc(client('alice'),...path),{...data,status:'completed'}));
+  await assertSucceeds(setDoc(doc(client('alice'),...path),data));
+  await assertFails(updateDoc(doc(client('bob'),...path),{status:'completed'}));
+  await assertFails(deleteDoc(doc(client('alice'),'rooms','demo')));
+  await env.withSecurityRulesDisabled(async context=>updateDoc(doc(context.firestore(),'rooms','demo'),{deleting:true}));
+  await assertFails(setDoc(doc(client('alice'),'rooms','demo','messages','late'),message('alice')));
+  await assertFails(setDoc(doc(client('alice'),'rooms','demo','updates','late'),update('alice')));
+});

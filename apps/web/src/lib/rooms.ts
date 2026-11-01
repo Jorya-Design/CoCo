@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import {
-  Bytes, collection, doc, serverTimestamp, writeBatch, addDoc, updateDoc,
+  Bytes, collection, doc, serverTimestamp, writeBatch, addDoc, updateDoc, setDoc,
   type Firestore, type Timestamp,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
@@ -8,7 +8,7 @@ import { makePlan } from '../../../../shared/plan.ts';
 import { ORGANIZATION_ID } from '../../../../shared/organization.ts';
 import { queuePlanningReply } from './planning.ts';
 
-export interface Room { id: string; title: string; ownerUid: string; orgId: string; createdAt: Timestamp | null }
+export interface Room { id: string; title: string; ownerUid: string; orgId: string; createdAt: Timestamp | null; deleting?: boolean }
 export interface ChatMessage { id: string; authorUid: string; authorName: string; text: string; createdAt: Timestamp | null; agent?: 'codex'; replyStatus?: 'queued' | 'running' | 'completed' | 'failed'; replyError?: string }
 export async function createRoom(db: Firestore, user: User, title: string) {
   if (!user.email || !user.emailVerified) throw new Error('Sign in with a verified email address.');
@@ -34,4 +34,10 @@ export async function sendMessage(db: Firestore, roomId: string, user: User, tex
   });
   if(respond)queuePlanningReply(batch,db,roomId,message.id,user,plan);
   await batch.commit();
+}
+
+export async function deleteRoom(db: Firestore, roomId: string, user: User) {
+  await setDoc(doc(db,'organizations',ORGANIZATION_ID,'roomDeletionRequests',roomId),{
+    requestedBy:user.uid,requestedByEmail:user.email!.toLowerCase(),status:'queued',createdAt:serverTimestamp(),
+  },{merge:true});
 }

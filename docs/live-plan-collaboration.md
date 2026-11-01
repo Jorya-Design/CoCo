@@ -30,3 +30,7 @@ Keep worker protocol changes isolated to this adapter and `shared/plan-prompt.ts
 Rooms start with a title and no implementation tasks. Once the room agrees on the shared plan, **Agree & create implementation plan** sends its exact saved text and complete interview history to Codex. Codex subdivides that scope into concrete tasks with dependencies and acceptance checks; there is no default task graph.
 
 The server validates the graph and saves an immutable record in `rooms/{roomId}/implementationPlans/{requestId}`. Changes to the plan or interview during generation cause a visible conflict. Later changes require regeneration before approval. Approvals must match a server-generated record exactly, and the scheduler checks that provenance before starting a new run. Historical runs remain available.
+
+## Deleting rooms
+
+Verified members can use the trash button beside a room and confirm its permanent removal. The control plane processes a durable deletion request, first marking the room unavailable to new edits and jobs, then cancelling work and recursively removing its conversation, CRDT updates, interview answers, approvals, runs, generated plans, and private planning contexts. Cleanup resumes after service restarts. Other rooms are unaffected, and an open deleted room falls back to the next room or the empty workspace. The organization bootstrap creates a demo room only when explicitly passed `--demo-room`.

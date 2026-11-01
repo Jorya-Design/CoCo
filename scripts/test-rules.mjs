@@ -16,7 +16,7 @@ env[pathKey]=[dirname(process.execPath),...(env.JAVA_HOME?[join(env.JAVA_HOME,'b
 env.FIREBASE_EMULATORS_PATH ??= join(root,'.coco','emulators');
 const child=spawn(process.execPath,[join(root,'node_modules','firebase-tools','lib','bin','firebase.js'),
   'emulators:exec','--only','auth,firestore','--project','demo-coco',
-  'node --import tsx --test --test-concurrency=1 tests/firestore.rules.test.ts tests/auth.emulator.test.ts tests/scheduler.test.ts tests/plan-agent.test.ts tests/collaboration.emulator.test.ts',
+  'node --import tsx --test --test-concurrency=1 tests/firestore.rules.test.ts tests/auth.emulator.test.ts tests/scheduler.test.ts tests/plan-agent.test.ts tests/collaboration.emulator.test.ts tests/room-deletion.test.ts',
 ],{cwd:root,env,stdio:'inherit'});
 child.on('error',error=>{console.error(error.message);process.exitCode=1;});
 child.on('exit',code=>{process.exitCode=code??1;});

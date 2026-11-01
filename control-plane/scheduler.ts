@@ -42,7 +42,7 @@ export class Scheduler {
           return null;
         }
         const snapshot = approval.data();
-        const allowed = room.data()?.orgId === 'coco-co' && organization.data()?.memberEmails?.includes(request.requestedByEmail);
+        const allowed = room.data()?.orgId === 'coco-co' && !room.data()?.deleting && organization.data()?.memberEmails?.includes(request.requestedByEmail);
         if (!allowed || !snapshot || snapshot.status !== 'approved') {
           tx.update(candidate.ref,{status:'failed'}); return null;
         }
@@ -111,7 +111,8 @@ export class Scheduler {
       const request = requestSnap.data();
       const run = runSnap.data() as ExecutionRun | undefined;
       if (!run || !request) throw new Error('Run unavailable');
-      const active = request.status === 'running' && run.status === 'running'
+      const room=await tx.get(this.db.doc(`rooms/${command.roomId}`));
+      const active = room.exists && !room.data()?.deleting && request.status === 'running' && run.status === 'running'
         && organization.data()?.memberEmails?.includes(request.requestedByEmail);
       if (!active) {
         tx.update(leaseRef,{status:'cancelled'});

@@ -1,3 +1,4 @@
+import { RoomDeletion } from './room-deletion.ts';
 import { loadRegistry } from './worker-auth.ts';
 import { createMachineServer } from './machine-server.ts';
 import { createHealthPublisher } from './runtime-health.ts';
@@ -13,6 +14,7 @@ await loadRegistry(registryFile); // Fail startup closed on invalid configuratio
 const registry = () => loadRegistry(registryFile);
 const project = process.env.COCO_FIREBASE_PROJECT;
 const health = project ? createHealthPublisher(project, process.env.COCO_HOST_NAME ?? 'linux-worker') : null;
+const roomDeletion = project ? new RoomDeletion() : null;
 const execute = process.env.COCO_EXECUTION_ENABLED === 'true';
 if (execute && !project) throw new Error('Execution requires Firebase');
 const scheduler = execute ? new Scheduler(process.env.COCO_REPOSITORY_SHA ?? '') : null;
@@ -56,10 +58,11 @@ async function publish() {
   finally { publishing = false; }
 }
 void publish();
+const deletions = setInterval(()=>void roomDeletion?.process().catch(()=>console.error('Cannot process room deletions')),3000);
 const decisions = setInterval(()=>void plans?.processDecisions().catch(()=>console.error('Cannot process plan decisions')),3000);
 const heartbeat = setInterval(() => void publish(), 30000);
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => {
-  clearInterval(heartbeat);clearInterval(decisions);
+  clearInterval(heartbeat);clearInterval(decisions);clearInterval(deletions);
   void service.close().then(async () => {
     proxy?.server.close();
     await health?.publish([], false).catch(() => {});
