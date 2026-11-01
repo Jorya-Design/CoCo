@@ -89,8 +89,9 @@ The org's two members are provisioned by an authorized operator with
 npm run seed:organization. This idempotent command creates the org and demo room
 without overwriting an existing plan. It uses the operator's existing gcloud login.
 
-Google sign-in is a follow-up: [support contact #2](https://github.com/Jorya-Design/CoCo/issues/2)
-comes before [Google sign-in #3](https://github.com/Jorya-Design/CoCo/issues/3).
+The Google provider is enabled with joryatm@gmail.com as the saved support contact.
+Public-facing branding remains in [#2](https://github.com/Jorya-Design/CoCo/issues/2);
+Google sign-in UI and account linking remain in [#3](https://github.com/Jorya-Design/CoCo/issues/3).
 
 Start with the [docs index](docs/README.md), including the
 [auth and access inventory](docs/auth-and-access.md) and
