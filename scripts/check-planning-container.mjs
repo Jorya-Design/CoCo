@@ -11,6 +11,11 @@ const server=createServer(async(req,res)=>{
   assert.equal(req.url,'/v1/responses');
   assert.equal(req.headers.authorization,'Bearer protocol-test-only');
   const request=JSON.parse(raw);assert.match(JSON.stringify(request.input),/Help plan the release/);calls++;
+  if(calls===2) {
+    assert.equal(request.text?.format?.type,'json_schema');
+    assert.deepEqual(request.text.format.schema.required,['reply','edits']);
+    assert.equal(request.text.format.schema.properties.edits.type,'array');
+  }
   res.writeHead(200,{'Content-Type':'text/event-stream'});
   const replyText=calls===1 ? text : JSON.stringify({reply:'I clarified the goal.',edits:[{before:'A goal.',after:'A clear goal.'}]});
   const item={id:'msg_1',type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:replyText,annotations:[]}]};
