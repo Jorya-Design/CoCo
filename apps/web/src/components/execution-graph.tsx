@@ -66,6 +66,6 @@ export function ExecutionGraph({ tasks, run, notes, selectedId, onSelect }: {
         })}</div>
       </div>)}
     </div></div>
-    <div className="tree-footer"><span><span className="dot"/> {run ? `Run ${run.status}` : 'Plan preview · no run started'}</span><span>Branches run in parallel. Merges wait for every input.</span></div>
+    <div className="tree-footer"><span><span className="dot"/> {run ? `Run ${run.status}` : 'Plan preview · no run started'}</span><span>Branches are ready independently. Merges wait for every input.</span></div>
   </section>;
 }

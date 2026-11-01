@@ -4,6 +4,7 @@ umask 077
 release_id=${1:?release SHA required}
 [[ $release_id =~ ^[a-f0-9]{40}$ ]] || exit 1
 release_dir="/opt/coco/install-$release_id"
+install -d -m 0755 -o root -g root /opt/coco
 cd "$release_dir"
 bash deploy/bootstrap.sh
 node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if(major!==24||minor<12) process.exit(1)' || { echo 'Install Node.js >=24.12.0 <25 before deploying'; exit 1; }
