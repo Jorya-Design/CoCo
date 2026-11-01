@@ -90,7 +90,7 @@ npm run seed:organization. This idempotent command creates the org and demo room
 without overwriting an existing plan. It uses the operator's existing gcloud login.
 
 The Google provider is enabled with joryatm@gmail.com as the saved support contact.
-Public-facing branding remains in [#2](https://github.com/Jorya-Design/CoCo/issues/2);
+The public-facing name is CoCo, completing [#2](https://github.com/Jorya-Design/CoCo/issues/2);
 Google sign-in UI and account linking remain in [#3](https://github.com/Jorya-Design/CoCo/issues/3).
 
 Start with the [docs index](docs/README.md), including the
