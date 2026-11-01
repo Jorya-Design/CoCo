@@ -212,3 +212,25 @@ test('live cursors are member-owned, bounded, and publicly readable',async()=>{
   await assertFails(setDoc(doc(db,'rooms','demo','cursors','huge'),{...cursor,bytes:Bytes.fromUint8Array(new Uint8Array(16385))}));
   await assertSucceeds(deleteDoc(ref));
 });
+
+test('AI requests require member attribution and an atomic chat message, with server-owned results',async()=>{
+  const db=client('alice');const ref=doc(db,'organizations','coco-co','planRequests','request');
+  const data={roomId:'demo',requestedBy:'alice',requestedByEmail:email('alice'),prompt:'Improve the plan',mode:'suggest',status:'queued',createdAt:serverTimestamp()};
+  await assertFails(setDoc(ref,data));
+  const batch=writeBatch(db);batch.set(ref,data);batch.set(doc(db,'rooms','demo','messages','request'),{...message('alice'),text:data.prompt});await assertSucceeds(batch.commit());
+  await assertFails(updateDoc(ref,{status:'applied',reply:'forged'}));
+  await assertFails(updateDoc(ref,{prompt:'Different request'}));
+  await assertFails(getDoc(doc(guest(),'organizations','coco-co','planRequests','request')));
+  await assertFails(getDoc(doc(client('eve'),'organizations','coco-co','planRequests','request')));
+  await assertFails(setDoc(doc(db,'planContexts','request'),{bytes:Bytes.fromUint8Array(new Uint8Array([1]))}));
+  await assertSucceeds(updateDoc(doc(client('bob'),'organizations','coco-co','planRequests','request'),{status:'cancelled'}));
+});
+test('either member may review a real proposal, but cannot forge its edit payload or apply twice',async()=>{
+  await env.withSecurityRulesDisabled(async context=>setDoc(doc(context.firestore(),'organizations','coco-co','planRequests','proposal'),{roomId:'demo',status:'suggested',edits:[],reply:'Review me'}));
+  const ref=doc(client('bob'),'organizations','coco-co','planRequests','proposal');
+  await assertFails(updateDoc(ref,{status:'apply_requested',decidedByEmail:email('alice')}));
+  await assertFails(updateDoc(ref,{status:'apply_requested',decidedByEmail:email('bob'),edits:[{after:'tampered'}]}));
+  await assertSucceeds(updateDoc(ref,{status:'apply_requested',decidedByEmail:email('bob')}));
+  await assertFails(updateDoc(ref,{status:'applied'}));
+  await assertFails(updateDoc(ref,{status:'rejected',decidedByEmail:email('bob')}));
+});

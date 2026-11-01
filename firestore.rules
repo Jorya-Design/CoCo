@@ -18,6 +18,27 @@ service cloud.firestore {
         allow read: if true;
         allow write: if false;
       }
+      match /planRequests/{requestId} {
+        allow read: if orgMember();
+        allow create: if orgMember()
+          && request.resource.data.keys().hasOnly(['roomId','requestedBy','requestedByEmail','prompt','mode','status','createdAt'])
+          && request.resource.data.requestedBy == request.auth.uid
+          && request.resource.data.requestedByEmail == request.auth.token.email.lower()
+          && request.resource.data.roomId is string && request.resource.data.roomId.matches('^[a-zA-Z0-9_-]{1,128}$')
+          && publicRoom(request.resource.data.roomId)
+          && request.resource.data.mode in ['answer','suggest','edit']
+          && request.resource.data.prompt is string && request.resource.data.prompt.matches('(?s).*[^\\s].*') && request.resource.data.prompt.size() <= 8000
+          && request.resource.data.status == 'queued' && request.resource.data.createdAt == request.time
+          && getAfter(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)/messages/$(requestId)).data.authorUid == request.auth.uid
+          && getAfter(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)/messages/$(requestId)).data.text == request.resource.data.prompt;
+        allow update: if orgMember() && publicRoom(resource.data.roomId) && (
+          (resource.data.status in ['queued','running'] && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
+          || (resource.data.status == 'suggested' && request.resource.data.status in ['apply_requested','rejected']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','decidedByEmail'])
+            && request.resource.data.decidedByEmail == request.auth.token.email.lower()));
+        allow delete: if false;
+      }
       match /executionRequests/{requestId} {
         allow read: if orgMember();
         allow create: if orgMember()

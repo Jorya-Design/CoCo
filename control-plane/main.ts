@@ -2,6 +2,7 @@ import { loadRegistry } from './worker-auth.ts';
 import { createMachineServer } from './machine-server.ts';
 import { createHealthPublisher } from './runtime-health.ts';
 import { readFile } from 'node:fs/promises';
+import { PlanAgent } from './plan-agent.ts';
 import { Scheduler } from './scheduler.ts';
 import { createInferenceProxy } from './inference-proxy.ts';
 
@@ -14,6 +15,7 @@ const health = project ? createHealthPublisher(project, process.env.COCO_HOST_NA
 const execute = process.env.COCO_EXECUTION_ENABLED === 'true';
 if (execute && !project) throw new Error('Execution requires Firebase');
 const scheduler = execute ? new Scheduler(process.env.COCO_REPOSITORY_SHA ?? '') : null;
+const plans = execute ? new PlanAgent(process.env.COCO_REPOSITORY_SHA ?? '') : null;
 const apiKey = execute ? (await readFile(process.env.COCO_OPENAI_KEY_FILE ?? '', 'utf8')).trim() : '';
 if (execute && !apiKey) throw new Error('Inference credentials required');
 const proxy = execute ? createInferenceProxy(apiKey,registry) : null;
@@ -21,14 +23,14 @@ const grants = new Map<string,{attemptId:string;token:string}>();
 const service = createMachineServer(registry,5000,scheduler && proxy ? {
   command: async (identity, command) => {
     if (command.type === 'worker/poll') {
-      const job = await scheduler.claim(identity);
+      const job = await plans!.claim(identity) ?? await scheduler.claim(identity);
       if (!job) return {type:'worker/idle'};
       const token = proxy.issue(identity);
       grants.set(identity.workerId,{attemptId:job.attemptId,token});
       return {type:'worker/job',job:{...job,inferenceToken:token}};
     }
     const grant = grants.get(identity.workerId);
-    const accepted = await scheduler.report(identity,command);
+    const accepted = await (await plans!.owns(identity.workerId) ? plans! : scheduler).report(identity,command);
     if (grant?.attemptId === command.attemptId) {
       if (command.type!=='worker/result' && accepted) proxy.renew(grant.token);
       else { proxy.revoke(grant.token); grants.delete(identity.workerId); }
@@ -52,9 +54,10 @@ async function publish() {
   finally { publishing = false; }
 }
 void publish();
+const decisions = setInterval(()=>void plans?.processDecisions().catch(()=>console.error('Cannot process plan decisions')),3000);
 const heartbeat = setInterval(() => void publish(), 30000);
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => {
-  clearInterval(heartbeat);
+  clearInterval(heartbeat);clearInterval(decisions);
   void service.close().then(async () => {
     proxy?.server.close();
     await health?.publish([], false).catch(() => {});

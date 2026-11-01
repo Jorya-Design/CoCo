@@ -2,6 +2,7 @@ FROM node:24.12.0-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 make g++ \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global --ignore-scripts @openai/codex@0.166.0
+COPY shared/plan-prompt.ts /opt/shared/plan-prompt.ts
 COPY worker/executor.mjs /opt/coco/executor.mjs
 WORKDIR /work
 ENTRYPOINT ["node", "/opt/coco/executor.mjs"]

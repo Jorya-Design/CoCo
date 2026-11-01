@@ -3,6 +3,7 @@ import { spawn, execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
+import { planAgentPrompt, planOutputSchema } from '../shared/plan-prompt.ts';
 const execFile = promisify(execFileCallback);
 let raw = '';
 for await (const chunk of process.stdin) { raw += chunk; if(raw.length>300000)throw new Error('Job too large'); }
@@ -15,10 +16,14 @@ const git = (...args) => execFile('git',['-c','core.hooksPath=/dev/null','-c','u
 await mkdir('/tmp/codex-home',{recursive:true});
 const repository = '/work/repo.git';
 const cwd = `/work/tasks/${job.attemptId}`;
+if (job.planning) {
+  await mkdir(cwd,{recursive:true});
+} else {
 await git('init','--bare',repository);
 await git('--git-dir',repository,'fetch','--no-tags','https://github.com/Jorya-Design/CoCo.git',job.baseSha);
 await git('--git-dir',repository,'worktree','add','--detach',cwd,job.baseSha);
 for (const commit of job.dependencyCommits) await git('-C',cwd,'cherry-pick','--keep-redundant-commits',commit);
+}
 
 const child = spawn('codex',['-c','model_provider="coco"','-c',
   'model_providers.coco={name="CoCo",base_url="http://172.30.0.1:8790/v1",wire_api="responses",env_key="COCO_INFERENCE_TOKEN",requires_openai_auth=false}',
@@ -32,6 +37,7 @@ const completed = new Promise((resolve,reject)=>{resolveTurn=resolve;rejectTurn=
 // Attach a handler immediately; an early process failure must not be unhandled.
 void completed.catch(()=>{});
 let output='';
+let finalMessage='';
 const lines=createInterface({input:child.stdout});
 function send(message) { child.stdin.write(JSON.stringify(message)+'\n'); }
 function rpc(method,params) {
@@ -52,7 +58,8 @@ lines.on('line',line=>{
       // No interactive or host-side tool requests are accepted by this worker.
       send({id:message.id,error:{code:-32601,message:'Interactive requests are unavailable'}});
     } else if (message.method==='item/completed' && message.params?.item?.type==='agentMessage') {
-      output=(output+'\n'+message.params.item.text).slice(-15000);
+      finalMessage=message.params.item.text;
+      output=(output+'\n'+finalMessage).slice(-15000);
     } else if (message.method==='turn/completed') {
       if(message.params?.turn?.status==='completed')resolveTurn();else rejectTurn(new Error('Codex turn failed'));
     }
@@ -70,13 +77,21 @@ try {
     config:{'shell_environment_policy.exclude':['COCO_INFERENCE_TOKEN']}});
   console.log(JSON.stringify({type:'worker/thread',threadId:thread.id}));
   await rpc('turn/start',{threadId:thread.id,cwd,approvalPolicy:'never',sandboxPolicy:{type:'externalSandbox',networkAccess:'enabled'},
-    input:[{type:'text',text:`Implement this approved task in the current repository. Work only in the task worktree. Do not deploy or push. The supervisor will preserve your final changes as a commit. Report actual checks and limitations.\n\nTask: ${job.task.title}\n${job.task.description}\n\nApproved plan:\n${job.plan}`}]});
+    ...(job.planning ? {outputSchema:planOutputSchema} : {}),
+    input:[{type:'text',text:job.planning ? planAgentPrompt(job.plan,job.planning) : `Implement this approved task in the current repository. Work only in the task worktree. Do not deploy or push. The supervisor will preserve your final changes as a commit. Report actual checks and limitations.\n\nTask: ${job.task.title}\n${job.task.description}\n\nApproved plan:\n${job.plan}`}]});
   await completed;
+  if(job.planning) {
+    const parsed=JSON.parse(finalMessage);
+    const result=JSON.stringify(parsed).split(job.inferenceToken).join('[redacted]');
+    if(result.length>16000)throw new Error('Plan reply too large');
+    console.log(JSON.stringify({success:true,output:result}));
+  } else {
   await git('-C',cwd,'add','-A');
   const changed=await git('-C',cwd,'diff','--cached','--name-only');
   if(changed.stdout.trim())await git('-C',cwd,'commit','-m',`CoCo: ${job.task.title.slice(0,150)}`);
   const head=await git('-C',cwd,'rev-parse','HEAD');
   console.log(JSON.stringify({success:true,commit:head.stdout.trim(),output:output.split(job.inferenceToken).join('[redacted]')}));
+  }
 } catch {
   console.log(JSON.stringify({success:false,output:'Codex execution failed. Check model access, API billing, or task checks in the worker logs.'}));
 } finally { child.kill('SIGTERM'); lines.close(); }

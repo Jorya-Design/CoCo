@@ -41,7 +41,7 @@ export async function runContainer(job: ExecutionJob, signal: AbortSignal, onThr
         try {
           if(output.trim())result=JSON.parse(output.trim());
           if(typeof result.success!=='boolean'||typeof result.output!=='string'||result.output.length>16000
-            || (result.success && !/^[a-f0-9]{40}$/.test(result.commit)))throw new Error();
+            || (result.success && !job.planning && !/^[a-f0-9]{40}$/.test(result.commit)))throw new Error();
           resolve(result);
         } catch {reject(new Error('Invalid executor result'));}
       });

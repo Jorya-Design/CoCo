@@ -25,8 +25,9 @@ export class Scheduler {
           tx.get(this.db.doc('organizations/coco-co')), tx.get(this.db.doc(`rooms/${request.roomId}`)),
           tx.get(this.db.doc(`rooms/${request.roomId}/approvals/${request.approvalId}`)), tx.get(runRef), tx.get(this.lease(identity.workerId)),
         ]);
-        const previous = leaseSnap.data() as RunLease & { taskId: string } | undefined;
+        const previous = leaseSnap.data() as RunLease & { taskId: string; kind?:string } | undefined;
         if (previous?.status === 'active') {
+          if(previous.kind==='plan')return null;
           if (previous.expiresAt > Date.now()) return null;
           // Never silently rerun an attempt that could have already changed its worktree.
           const oldRunRef = this.db.doc(`rooms/${previous.roomId}/runs/${previous.runId}`);
