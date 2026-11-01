@@ -4,6 +4,7 @@ import { createHealthPublisher } from './runtime-health.ts';
 import { readFile } from 'node:fs/promises';
 import { Scheduler } from './scheduler.ts';
 import { createInferenceProxy } from './inference-proxy.ts';
+import { PlanningScheduler } from './planning-scheduler.ts';
 
 const registryFile = process.env.COCO_WORKER_REGISTRY_FILE;
 if (!registryFile) throw new Error('COCO_WORKER_REGISTRY_FILE is required');
@@ -14,6 +15,7 @@ const health = project ? createHealthPublisher(project, process.env.COCO_HOST_NA
 const execute = process.env.COCO_EXECUTION_ENABLED === 'true';
 if (execute && !project) throw new Error('Execution requires Firebase');
 const scheduler = execute ? new Scheduler(process.env.COCO_REPOSITORY_SHA ?? '') : null;
+const planner = execute ? new PlanningScheduler() : null;
 const apiKey = execute ? (await readFile(process.env.COCO_OPENAI_KEY_FILE ?? '', 'utf8')).trim() : '';
 if (execute && !apiKey) throw new Error('Inference credentials required');
 const proxy = execute ? createInferenceProxy(apiKey,registry) : null;
@@ -21,14 +23,14 @@ const grants = new Map<string,{attemptId:string;token:string}>();
 const service = createMachineServer(registry,5000,scheduler && proxy ? {
   command: async (identity, command) => {
     if (command.type === 'worker/poll') {
-      const job = await scheduler.claim(identity);
+      const job = await planner!.claim(identity) ?? await scheduler.claim(identity);
       if (!job) return {type:'worker/idle'};
-      const token = proxy.issue(identity);
+      const token = proxy.issue(identity,'kind' in job && job.kind === 'planning');
       grants.set(identity.workerId,{attemptId:job.attemptId,token});
       return {type:'worker/job',job:{...job,inferenceToken:token}};
     }
     const grant = grants.get(identity.workerId);
-    const accepted = await scheduler.report(identity,command);
+    const accepted = await (await planner!.handles(identity.workerId) ? planner! : scheduler).report(identity,command);
     if (grant?.attemptId === command.attemptId) {
       if (command.type!=='worker/result' && accepted) proxy.renew(grant.token);
       else { proxy.revoke(grant.token); grants.delete(identity.workerId); }
