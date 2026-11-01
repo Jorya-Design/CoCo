@@ -7,9 +7,10 @@ import type { User } from 'firebase/auth';
 import { makePlan, makeTasks } from '../../../../shared/plan.ts';
 import type { TaskSpec } from '../../../../shared/types.ts';
 import { ORGANIZATION_ID } from '../../../../shared/organization.ts';
+import { queuePlanningReply } from './planning.ts';
 
 export interface Room { id: string; title: string; ownerUid: string; orgId: string; createdAt: Timestamp | null }
-export interface ChatMessage { id: string; authorUid: string; authorName: string; text: string; createdAt: Timestamp | null }
+export interface ChatMessage { id: string; authorUid: string; authorName: string; text: string; createdAt: Timestamp | null; agent?: 'codex'; replyStatus?: 'queued' | 'running' | 'completed' | 'failed'; replyError?: string }
 export async function createRoom(db: Firestore, user: User, title: string) {
   if (!user.email || !user.emailVerified) throw new Error('Sign in with a verified email address.');
   const room = doc(collection(db, 'rooms'));
@@ -26,9 +27,13 @@ export async function createRoom(db: Firestore, user: User, title: string) {
   document.destroy();
   return room.id;
 }
-export async function sendMessage(db: Firestore, roomId: string, user: User, text: string) {
-  await addDoc(collection(db, 'rooms', roomId, 'messages'), {
+export async function sendMessage(db: Firestore, roomId: string, user: User, text: string, plan = '', respond = true) {
+  const message = doc(collection(db, 'rooms', roomId, 'messages'));
+  const batch = writeBatch(db);
+  batch.set(message, {
     authorUid: user.uid, authorName: user.displayName?.slice(0, 100) || 'Teammate',
-    text: text.trim(), createdAt: serverTimestamp(),
+    text: text.trim(), ...(respond ? {replyStatus:'queued'} : {}), createdAt: serverTimestamp(),
   });
+  if(respond)queuePlanningReply(batch,db,roomId,message.id,user,plan);
+  await batch.commit();
 }

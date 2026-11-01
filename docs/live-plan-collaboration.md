@@ -9,11 +9,13 @@ The canonical plan is a Y.Text document. Firestore carries immutable Yjs updates
 - **Edit the plan** authorizes direct edits for that request. Changes appear in both members' documents through the same CRDT transport.
 - **Team only** sends a normal message without invoking Codex.
 
+Interview answers also queue a discussion reply through the planning runtime integrated from PR #15. Explicit chat modes queue only one request; Team only suppresses the automatic reply.
+
 Queued and running requests can be cancelled by either member. Activity reflects actual worker states and includes the Codex thread ID. Offline workers leave requests visibly queued; failures and conflicting edits show an explanation. The AI sees a snapshot taken when the worker claims the request. Later human changes are checked before applying its output.
 
 ## Runtime adapter
 
-`control-plane/plan-agent.ts` translates Firestore planning intents into ordinary worker jobs with an optional `planning` context. Coding jobs keep their existing protocol. The same authenticated machine gateway, fenced shared worker lease, disposable Docker container, and short-lived inference capability are used. No API key or worker credential reaches the browser. Planning containers skip repository fetch and return structured output through Codex app-server `turn/start.outputSchema`; only the control plane may publish AI replies and edit payloads.
+`control-plane/plan-agent.ts` translates Firestore planning intents into ordinary worker jobs with an optional `planning` context. Coding jobs keep their existing protocol. The same authenticated machine gateway, fenced shared worker lease, disposable Docker container, and short-lived inference capability are used. Planning containers have an ephemeral document workspace, no repository mount, and an inference capability with tools disabled. No API key or worker credential reaches the browser. Planning containers skip repository fetch and return structured output through Codex app-server `turn/start.outputSchema`; only the control plane may publish AI replies and edit payloads.
 
 The model returns unique exact before/after passages. The adapter anchors them in the captured Yjs document using relative positions. Applying resolves those anchors against the latest document in a Firestore transaction. Unrelated edits survive. A change inside any proposed passage blocks the entire proposal. Review decisions are checked against current organization membership. Cancelled, expired, or stale attempts cannot publish a result. Private captured contexts are removed on completion/cancellation/expiry.
 

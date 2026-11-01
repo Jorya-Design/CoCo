@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import WebSocket from 'ws';
 import { runContainer } from './run-container.ts';
 import type { ExecutionJob, WorkerCommand } from '../shared/execution.ts';
+import type { PlanningJob } from '../shared/planning.ts';
 
 const endpoint = new URL(process.env.COCO_CONTROL_PLANE_URL ?? '');
 const tokenFile = process.env.COCO_WORKER_TOKEN_FILE;
@@ -42,7 +43,7 @@ while (!stopping) {
           const response=await request({type:'worker/poll'});
           if(response.type==='worker/idle'){await new Promise(resolve=>setTimeout(resolve,3000));continue;}
           if(response.type!=='worker/job')throw new Error('Unexpected response');
-          const job=response.job as ExecutionJob;
+          const job=response.job as ExecutionJob | PlanningJob;
           const key={roomId:job.roomId,runId:job.runId,attemptId:job.attemptId,fence:job.fence};
           attempt=new AbortController();
           const controller=attempt;

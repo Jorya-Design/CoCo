@@ -3,6 +3,7 @@ import { after, beforeEach, test } from 'node:test';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import * as Y from 'yjs';
+import { PlanningScheduler } from '../control-plane/planning-scheduler.ts';
 import { PlanAgent } from '../control-plane/plan-agent.ts';
 import { anchorReply } from '../shared/plan-agent.ts';
 import type { ExecutionJob, LeaseKey } from '../shared/execution.ts';
@@ -69,4 +70,18 @@ test('answer mode and ambiguous passages cannot mutate the plan',()=>{
   assert.throws(()=>anchorReply(document,{reply:'Hi',edits:[{before:'repeat repeat',after:'once'}]},'answer'));
   assert.throws(()=>anchorReply(document,{reply:'Hi',edits:[{before:'',after:'append'}]},'edit'));
   assert.deepEqual(anchorReply(document,{reply:'Hi',edits:[]},'answer'),{reply:'Hi',edits:[]});document.destroy();
+});
+
+test('document editing and automatic discussion share one fenced worker lease',async()=>{
+  const discussion=new PlanningScheduler();
+  const job=await agent.claim(identity);assert.ok(job);
+  assert.equal(await discussion.claim(identity),null);
+  await result(job);
+  await db.doc('rooms/room-1/messages/source').set({authorUid:'alice',authorName:'Alice',text:'Discuss this',createdAt:Timestamp.now()});
+  await db.doc('organizations/coco-co/planningRequests/source').set({roomId:'room-1',messageId:'source',requestedBy:'alice',requestedByEmail:'alice@example.com',plan:'A goal',status:'queued',createdAt:Timestamp.now()});
+  const reply=await discussion.claim(identity);assert.ok(reply);
+  await db.doc(path).set({roomId:'room-1',mode:'answer',prompt:'Explain',requestedByEmail:'alice@example.com',status:'queued'});
+  assert.equal(await agent.claim(identity),null);
+  await discussion.report(identity,{type:'worker/result',...{roomId:reply.roomId,runId:reply.runId,attemptId:reply.attemptId,fence:reply.fence},success:true,output:'A discussion reply.'});
+  assert.ok(await agent.claim(identity));
 });

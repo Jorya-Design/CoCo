@@ -123,7 +123,7 @@ export class PlanAgent {
           if(result.edits.length && request.mode==='edit')await this.apply(tx,ref,request.roomId,result.edits);
           else tx.update(ref,{status:result.edits.length?'suggested':'completed'});
           tx.update(ref,{reply:result.reply,edits:result.edits,completedAt:stamp()});
-          tx.create(this.db.collection(`rooms/${request.roomId}/messages`).doc(),{authorUid:'codex',authorName:'Codex',text:result.reply,createdAt:stamp()});
+          tx.create(this.db.collection(`rooms/${request.roomId}/messages`).doc(),{authorUid:'codex',authorName:'Codex',agent:'codex',text:result.reply,createdAt:stamp()});
         } finally {document.destroy();}
       }
       tx.update(leaseRef,{status:'completed'});tx.delete(context.ref);return true;

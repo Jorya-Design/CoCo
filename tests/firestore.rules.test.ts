@@ -23,6 +23,46 @@ const guest=()=>env.unauthenticatedContext().firestore();
 const update=(uid:string)=>({bytes:Bytes.fromUint8Array(new Uint8Array([1,2,3])),authorUid:uid,authorName:uid,createdAt:serverTimestamp()});
 const message=(uid:string)=>({authorUid:uid,authorName:uid,text:'Hello team',createdAt:serverTimestamp()});
 const room=(uid:string)=>({title:'New room',ownerUid:uid,orgId:'coco-co',createdAt:serverTimestamp()});
+
+test('a planning request must be paired atomically with a new member message',async()=>{
+  const value={roomId:'demo',messageId:'paired',requestedBy:'alice',requestedByEmail:email('alice'),plan:'Plan context',status:'queued',createdAt:serverTimestamp()};
+  const db=client('alice');
+  const request=doc(db,'organizations/coco-co/planningRequests/paired');
+  await assertFails(setDoc(request,value));
+  const batch=writeBatch(db);batch.set(doc(db,'rooms/demo/messages/paired'),{...message('alice'),replyStatus:'queued'});batch.set(request,value);
+  await assertSucceeds(batch.commit());
+  await assertFails(updateDoc(request,{status:'completed'}));
+  await assertFails(setDoc(doc(db,'rooms/demo/messages/codex-paired'),message('alice')));
+  await assertFails(setDoc(doc(db,'rooms/demo/messages/fake-bot'),{...message('alice'),agent:'codex'}));
+  await setDoc(doc(db,'rooms/demo/messages/old'),message('alice'));
+  await assertFails(setDoc(doc(db,'organizations/coco-co/planningRequests/old'),{...value,messageId:'old'}));
+  for (const other of [guest(),client('eve')]) {
+    const attempt=writeBatch(other);
+    attempt.set(doc(other,'rooms/demo/messages/forbidden'),message('alice'));
+    attempt.set(doc(other,'organizations/coco-co/planningRequests/forbidden'),{...value,messageId:'forbidden'});
+    await assertFails(attempt.commit());
+  }
+});
+
+test('normal messages and interview answers use the production atomic planning queue',async()=>{
+  const {sendMessage}=await import('../apps/web/src/lib/rooms.ts');
+  const {sendInterviewAnswer}=await import('../apps/web/src/lib/interview.ts');
+  const {getInterviewPrompt}=await import('../shared/interview.ts');
+  const user={uid:'alice',email:email('alice'),emailVerified:true,displayName:'Alice'} as import('firebase/auth').User;
+  const db=client('alice') as unknown as import('firebase/firestore').Firestore;
+  await sendMessage(db,'demo',user,'A planning question','A shared plan');
+  await sendInterviewAnswer(db,'demo',user,getInterviewPrompt(0),'Interview answer','A shared plan');
+  const requests=await getDocs(collection(db,'organizations/coco-co/planningRequests'));
+  assert.equal(requests.size,2);
+  for (const entry of requests.docs) {
+    const source=await getDoc(doc(db,'rooms/demo/messages',entry.id));
+    assert.equal(source.data()!.replyStatus,'queued');
+    assert.match(entry.data().plan,/A shared plan/);
+  }
+  const outsider={...user,uid:'eve',email:email('eve')};
+  await assertFails(sendMessage(client('eve') as unknown as import('firebase/firestore').Firestore,'demo',outsider,'Forbidden'));
+  assert.equal((await getDocs(collection(db,'rooms/demo/messages'))).size,2);
+});
 test('anonymous visitors can view CoCo Co and its rooms, but not unrelated orgs',async()=>{
   const db=guest();
   await assertSucceeds(getDoc(doc(db,'organizations','coco-co')));

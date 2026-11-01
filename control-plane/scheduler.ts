@@ -27,7 +27,7 @@ export class Scheduler {
         ]);
         const previous = leaseSnap.data() as RunLease & { taskId: string; kind?:string } | undefined;
         if (previous?.status === 'active') {
-          if(previous.kind==='plan')return null;
+          if(['plan','planning'].includes(previous.kind??''))return null;
           if (previous.expiresAt > Date.now()) return null;
           // Never silently rerun an attempt that could have already changed its worktree.
           const oldRunRef = this.db.doc(`rooms/${previous.roomId}/runs/${previous.runId}`);
