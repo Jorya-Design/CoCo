@@ -15,7 +15,7 @@
     "seed:organization": "node --import tsx scripts/seed-organization.ts",
     "test:rules": "firebase emulators:exec --only auth,firestore --project demo-coco 'node --import tsx --test --test-concurrency=1 tests/firestore.rules.test.ts tests/auth.emulator.test.ts tests/scheduler.test.ts tests/plan-agent.test.ts tests/collaboration.emulator.test.ts'",
     "typecheck": "tsc --noEmit && npm run typecheck -w apps/web",
-    "test": "node --import tsx --test tests/plan.test.ts tests/crdt.test.ts tests/execution.test.ts tests/auth.test.ts tests/interview.test.ts tests/markdown.test.ts tests/worker-auth.test.ts tests/runtime-health.test.ts tests/inference-proxy.test.ts tests/plan-edits.test.ts",
+    "test": "node --import tsx --test tests/plan.test.ts tests/crdt.test.ts tests/execution.test.ts tests/auth.test.ts tests/interview.test.ts tests/markdown.test.ts tests/worker-auth.test.ts tests/runtime-health.test.ts tests/inference-proxy.test.ts tests/plan-edits.test.ts tests/publication.test.ts",
     "control-plane": "node --import tsx control-plane/main.ts",
     "worker:connect": "node --import tsx worker/machine-client.ts",
     "worker:credentials": "node --import tsx scripts/prepare-worker-credentials.ts",

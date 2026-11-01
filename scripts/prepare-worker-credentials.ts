@@ -15,4 +15,7 @@ await writeFile(join(output, 'worker-registry.json'), JSON.stringify(registry) +
 if (process.env.COCO_OPENAI_API_KEY) {
   await writeFile(join(output,'openai-key'),process.env.COCO_OPENAI_API_KEY.trim()+'\n',{mode:0o600});
 }
+if (process.env.COCO_GITHUB_BOT_TOKEN) {
+  await writeFile(join(output,'github-token'),process.env.COCO_GITHUB_BOT_TOKEN.trim()+'\n',{mode:0o600});
+}
 console.log('Prepared matching worker credential and control-plane verifier (values redacted)');

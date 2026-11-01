@@ -6,12 +6,23 @@ import { Scheduler } from '../control-plane/scheduler.ts';
 import { PlanningScheduler } from '../control-plane/planning-scheduler.ts';
 import { makeTasks } from '../shared/plan.ts';
 import type { ExecutionJob, LeaseKey } from '../shared/execution.ts';
+import { verifiedPullRequest } from '../shared/publication.ts';
 if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Scheduler tests require the Firestore emulator');
 const app=initializeApp({projectId:'demo-coco-scheduler'});
 const db=getFirestore(app);
 const scheduler=new Scheduler('b'.repeat(40));
 const identity={workerId:'worker-1',tokenSha256:'a'.repeat(64)};
 const key=(job:LeaseKey):LeaseKey=>({roomId:job.roomId,runId:job.runId,attemptId:job.attemptId,fence:job.fence});
+const pullRequest=(job:Omit<ExecutionJob,'inferenceToken'>,commit='f'.repeat(40))=>verifiedPullRequest({
+  number:42,url:'https://github.com/Jorya-Design/CoCo/pull/42',title:'Approved implementation',
+  headRefName:job.publication!.branch,baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false,
+},job.runId,commit);
+async function finishImplementation() {
+  for(let i=0;i<6;i++) {
+    const job=await scheduler.claim(identity);assert.ok(job);assert.equal(job.publication,undefined);
+    await scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'Checked',commit:String(i+1).repeat(40)});
+  }
+}
 beforeEach(async()=>{
   for(const path of ['organizations','rooms','workerLeases','planningRoomLeases'])await db.recursiveDelete(db.collection(path));
   await db.doc('organizations/coco-co').set({memberEmails:['alice@example.com']});
@@ -35,8 +46,62 @@ test('scheduler claims dependency-ready tasks once and transfers the full ancest
     assert.equal(await scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'Checked',commit}),true);
     await assert.rejects(scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'late',commit}));
   }
+  const beforePublication=(await db.doc('rooms/room-1/runs/run-1').get()).data()!;
+  assert.equal(beforePublication.status,'running');
+  assert.equal(beforePublication.tasks.length,6);
+  assert.equal(beforePublication.publication,undefined);
+  const publication=await scheduler.claim(identity);assert.ok(publication?.publication);
+  assert.deepEqual(new Set(publication.dependencyCommits),new Set(commits));
+  assert.equal(await scheduler.claim(identity),null);
+  assert.equal(await scheduler.claim({...identity,workerId:'worker-2'}),null);
+  await scheduler.report(identity,{type:'worker/thread',...key(publication),threadId:'publication-thread'});
+  assert.equal((await db.doc('rooms/room-1/runs/run-1').get()).data()!.publication.threadId,'publication-thread');
+  await assert.rejects(scheduler.report(identity,{type:'worker/result',...key(publication),success:true,output:'No PR',commit:'f'.repeat(40)}),/pull request/);
+  const pr=pullRequest(publication);
+  await assert.rejects(scheduler.report(identity,{type:'worker/result',...key(publication),success:true,output:'Wrong commit',commit:'e'.repeat(40),pullRequest:pr}));
+  await assert.rejects(scheduler.report(identity,{type:'worker/result',...key(publication),success:true,output:'Wrong branch',commit:pr.commit,pullRequest:{...pr,branch:'codex/coco-other-run'}}));
+  await scheduler.report(identity,{type:'worker/result',...key(publication),success:true,output:'Created and checked',commit:pr.commit,pullRequest:pr});
+  const finished=(await db.doc('rooms/room-1/runs/run-1').get()).data()!;
+  assert.deepEqual(finished.pullRequest,pr);
+  assert.equal(finished.publication.status,'completed');
+  assert.equal(finished.tasks.length,6);
   assert.equal((await db.doc('rooms/room-1/runs/run-1').get()).data()!.status,'completed');
   assert.equal(await scheduler.claim(identity),null);
+});
+test('publication waits for every independent DAG branch and collects all of them',async()=>{
+  const tasks=makeTasks('A demo').slice(0,2);
+  tasks.push({...tasks[0],id:'independent',dependencies:[]});
+  await db.doc('rooms/room-1/approvals/approved').update({tasks});
+  const commits=[];
+  for(let i=0;i<3;i++) {
+    const job=await scheduler.claim(identity);assert.ok(job);assert.equal(job.publication,undefined);
+    const commit=String(i+1).repeat(40);commits.push(commit);
+    const fakePr=verifiedPullRequest({number:42,url:'https://github.com/Jorya-Design/CoCo/pull/42',title:'Too early',
+      headRefName:'codex/coco-run-1',baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false},job.runId,commit);
+    await assert.rejects(scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'Too early',commit,pullRequest:fakePr}),/Unexpected/);
+    await scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'Checked',commit});
+  }
+  const job=await scheduler.claim(identity);assert.ok(job?.publication);
+  assert.deepEqual(new Set(job.dependencyCommits),new Set(commits));
+});
+test('publication failures preserve the completed DAG and fail the run visibly',async()=>{
+  await finishImplementation();
+  const job=await scheduler.claim(identity);assert.ok(job?.publication);
+  await scheduler.report(identity,{type:'worker/result',...key(job),success:false,output:'Missing bot token'});
+  const run=(await db.doc('rooms/room-1/runs/run-1').get()).data()!;
+  assert.equal(run.status,'failed');assert.equal(run.publication.status,'failed');
+  assert.ok(run.tasks.every((task:{status:string})=>task.status==='completed'));
+  assert.equal(run.pullRequest,undefined);
+  assert.equal(await scheduler.claim(identity),null);
+});
+test('cancellation also fences the final publication attempt',async()=>{
+  await finishImplementation();
+  const job=await scheduler.claim(identity);assert.ok(job?.publication);
+  await db.doc('organizations/coco-co/executionRequests/run-1').update({status:'cancelled'});
+  assert.equal(await scheduler.report(identity,{type:'worker/heartbeat',...key(job)}),false);
+  const pr=pullRequest(job);
+  await assert.rejects(scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'Late',commit:pr.commit,pullRequest:pr}));
+  assert.equal((await db.doc('rooms/room-1/runs/run-1').get()).data()!.pullRequest,undefined);
 });
 test('cancellation revokes the active attempt and prevents result acceptance',async()=>{
   const job=await scheduler.claim(identity);assert.ok(job);

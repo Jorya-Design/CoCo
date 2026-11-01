@@ -23,6 +23,10 @@ if [[ -s .coco/credentials/openai-key ]]; then
   install -m 0640 -o root -g coco-plane .coco/credentials/openai-key /etc/coco/control-plane/openai-key.new
   execute=true
 fi
+if [[ -s .coco/credentials/github-token ]]; then
+  install -m 0640 -o root -g coco-worker .coco/credentials/github-token /etc/coco/worker/github-token.new
+  mv /etc/coco/worker/github-token.new /etc/coco/worker/github-token
+fi
 rm -rf -- "$release_dir/.coco"
 # Remove all raw credentials before allowing the service user to install dependencies.
 chown -R coco-plane:coco-plane "$release_dir"

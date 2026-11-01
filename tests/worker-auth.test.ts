@@ -84,11 +84,14 @@ test('deployment derives its verifier from the worker secret and refuses expired
     assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + '\\') || resolve(directory).startsWith(resolve(tmpdir()) + '/'));
     await rm(directory, { recursive: true, force: true });
   });
+  const botToken='github_pat_test_bot_credential_1234567890';
   const env = { ...process.env, COCO_CREDENTIAL_OUTPUT: directory, COCO_WORKER_ID: 'worker-1',
-    COCO_WORKER_TOKEN: token, COCO_WORKER_TOKEN_EXPIRES_AT: new Date(expiresAt).toISOString() };
+    COCO_WORKER_TOKEN: token, COCO_WORKER_TOKEN_EXPIRES_AT: new Date(expiresAt).toISOString(),COCO_GITHUB_BOT_TOKEN:botToken };
   const provision = () => spawnSync(process.execPath, ['--import', 'tsx', 'scripts/prepare-worker-credentials.ts'], { env, encoding: 'utf8' });
   const result = provision(); assert.equal(result.status, 0, result.stderr);
   assert.ok(!result.stdout.includes(token));
+  assert.ok(!result.stdout.includes(botToken));
+  assert.equal((await readFile(join(directory,'github-token'),'utf8')).trim(),botToken);
   const deployedToken = (await readFile(join(directory, 'worker-token'), 'utf8')).trim();
   const deployedRegistry = parseRegistry(JSON.parse(await readFile(join(directory, 'worker-registry.json'), 'utf8')));
   assert.equal(authenticateWorker(`Bearer ${deployedToken}`, deployedRegistry).workerId, 'worker-1');

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import WebSocket from 'ws';
 import { runContainer } from './run-container.ts';
-import type { ExecutionJob, WorkerCommand } from '../shared/execution.ts';
+import type { ExecutionJob, ExecutionResult, WorkerCommand } from '../shared/execution.ts';
 import type { PlanningJob } from '../shared/planning.ts';
 
 const endpoint = new URL(process.env.COCO_CONTROL_PLANE_URL ?? '');
@@ -53,7 +53,7 @@ while (!stopping) {
             void request({type:'worker/heartbeat',...key}).then(reply=>{if(!reply.active)controller.abort();})
               .catch(()=>controller.abort()).finally(()=>{heartbeatPending=false;});
           },20000);
-          let result:{success:boolean;output:string;commit?:string};
+          let result:ExecutionResult;
           try {result=await runContainer(job,controller.signal,threadId=>{
             void request({type:'worker/thread',...key,threadId}).then(reply=>{if(!reply.active)controller.abort();}).catch(()=>controller.abort());
           });}
