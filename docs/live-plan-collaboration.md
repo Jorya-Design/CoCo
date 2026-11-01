@@ -24,3 +24,9 @@ Keep worker protocol changes isolated to this adapter and `shared/plan-prompt.ts
 ## Validation
 
 `npm test` covers CRDT range conflict checks and the existing runtime boundaries. `npm run test:rules` covers client permissions, planning leases/results/review, cancellation, concurrent human changes, and two authenticated Firestore clients exchanging edits and named cursor awareness and reloading durable state. Browser acceptance should also check two signed-in members in the same room, suggestion preview/acceptance, direct edits, and a continued interview. These browser checks use local emulator accounts, never stored production passwords.
+
+## Final planning stage
+
+Rooms start with a title and no implementation tasks. Once the room agrees on the shared plan, **Agree & create implementation plan** sends its exact saved text and complete interview history to Codex. Codex subdivides that scope into concrete tasks with dependencies and acceptance checks; there is no default task graph.
+
+The server validates the graph and saves an immutable record in `rooms/{roomId}/implementationPlans/{requestId}`. Changes to the plan or interview during generation cause a visible conflict. Later changes require regeneration before approval. Approvals must match a server-generated record exactly, and the scheduler checks that provenance before starting a new run. Historical runs remain available.

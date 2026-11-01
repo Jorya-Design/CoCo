@@ -22,7 +22,7 @@ beforeEach(async()=>{
   await db.doc('rooms/room-1').set({orgId:'coco-co'});
   const document=new Y.Doc();document.getText('plan').insert(0,'# Goal\n\nShip a demo.\n\n# Notes\nOriginal note.');
   await db.doc('rooms/room-1/updates/initial').set({bytes:Buffer.from(Y.encodeStateAsUpdate(document))});document.destroy();
-  await db.doc('rooms/room-1/interviews/answer').set({question:'What matters?',answer:'Collaboration',authorName:'Alice',createdAt:Timestamp.now()});
+  await db.doc('rooms/room-1/interviews/answer').set({questionIndex:0,title:'Priorities',question:'What matters?',answer:'Collaboration',authorUid:'alice',authorName:'Alice',createdAt:Timestamp.now()});
   await db.doc('rooms/room-1/messages/message').set({authorName:'Bob',text:'Use live editing',createdAt:Timestamp.now()});
   await db.doc(path).set({roomId:'room-1',mode:'suggest',prompt:'Clarify the goal',requestedBy:'alice',requestedByEmail:'alice@example.com',status:'queued'});
 });
@@ -84,4 +84,30 @@ test('document editing and automatic discussion share one fenced worker lease',a
   assert.equal(await agent.claim(identity),null);
   await discussion.report(identity,{type:'worker/result',...{roomId:reply.roomId,runId:reply.runId,attemptId:reply.attemptId,fence:reply.fence},success:true,output:'A discussion reply.'});
   assert.ok(await agent.claim(identity));
+});
+
+test('implementation planning publishes validated tasks only for the exact agreed plan',async()=>{
+  const {planWithInterview}=await import('../shared/interview.ts');
+  const document=await latest();
+  const entries=await db.collection('rooms/room-1/interviews').orderBy('createdAt').get();
+  const agreedPlan=planWithInterview(document.getText('plan').toString(),entries.docs.map(d=>({id:d.id,...d.data()})) as any);document.destroy();
+  await db.doc(path).update({mode:'implementation',agreedPlan});
+  const job=await agent.claim(identity);assert.ok(job);assert.equal(job.plan,agreedPlan);
+  const tasks=[{id:'live-editing',title:'Implement shared editing',description:'Synchronize edits and verify two clients converge.',kind:'map',dependencies:[]}];
+  await agent.report(identity,{type:'worker/result',...key(job),success:true,output:JSON.stringify({reply:'Created one task for the agreed scope.',tasks})});
+  const saved=(await db.doc('rooms/room-1/implementationPlans/request-1').get()).data();
+  assert.deepEqual(saved?.tasks,tasks);assert.equal(saved?.plan,agreedPlan);
+  assert.equal((await db.doc(path).get()).data()?.status,'completed');
+});
+test('implementation generation refuses changes made after room agreement',async()=>{
+  const {planWithInterview}=await import('../shared/interview.ts');
+  const document=await latest();
+  const entries=await db.collection('rooms/room-1/interviews').orderBy('createdAt').get();
+  const agreedPlan=planWithInterview(document.getText('plan').toString(),entries.docs.map(d=>({id:d.id,...d.data()})) as any);document.destroy();
+  await db.doc(path).update({mode:'implementation',agreedPlan});
+  const job=await agent.claim(identity);assert.ok(job);
+  await editHuman('Ship a demo.','Ship an offline demo.');
+  await agent.report(identity,{type:'worker/result',...key(job),success:true,output:JSON.stringify({reply:'Tasks',tasks:[{id:'a',title:'Build',description:'Build the demo',kind:'map',dependencies:[]}]})});
+  assert.equal((await db.doc(path).get()).data()?.status,'conflict');
+  assert.equal((await db.doc('rooms/room-1/implementationPlans/request-1').get()).exists,false);
 });

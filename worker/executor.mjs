@@ -3,7 +3,7 @@ import { spawn, execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { planAgentPrompt, planOutputSchema } from '../shared/plan-prompt.ts';
+import { planAgentPrompt, planOutputSchema, implementationOutputSchema } from '../shared/plan-prompt.ts';
 import { publicationTarget, publicationPrompt, verifiedPullRequest } from '../shared/publication.ts';
 const execFile = promisify(execFileCallback);
 let raw = '';
@@ -95,7 +95,7 @@ try {
       ...(job.publication ? {'shell_environment_policy.inherit':'all','shell_environment_policy.ignore_default_excludes':true} : {})}});
   console.log(JSON.stringify({type:'worker/thread',threadId:thread.id}));
   await rpc('turn/start',{threadId:thread.id,cwd,approvalPolicy:'never',sandboxPolicy:planning?{type:'readOnly'}:{type:'externalSandbox',networkAccess:'enabled'},
-    ...(job.planning ? {outputSchema:planOutputSchema} : {}),
+    ...(job.planning ? {outputSchema:job.planning.mode==='implementation'?implementationOutputSchema:planOutputSchema} : {}),
     input:[{type:'text',text:job.planning ? planAgentPrompt(job.plan,job.planning) : planning ? job.prompt : job.publication ? publicationPrompt(job.plan,job.runId) : `Implement this approved task in the current repository. Work only in the task worktree. Do not deploy or push. The supervisor will preserve your final changes as a commit. Report actual checks and limitations.\n\nTask: ${job.task.title}\n${job.task.description}\n\nApproved plan:\n${job.plan}`}]});
   await completed;
   if(job.planning) {

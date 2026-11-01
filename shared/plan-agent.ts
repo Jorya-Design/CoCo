@@ -2,7 +2,7 @@ import { z } from 'zod';
 import * as Y from 'yjs';
 import { anchorPlanEdit, type PlanEdit } from './plan-edits.ts';
 
-export const planModeSchema = z.enum(['answer', 'suggest', 'edit']);
+export const planModeSchema = z.enum(['answer', 'suggest', 'edit', 'implementation']);
 export type PlanMode = z.infer<typeof planModeSchema>;
 export const planReplySchema = z.object({
   reply: z.string().min(1).max(8000),

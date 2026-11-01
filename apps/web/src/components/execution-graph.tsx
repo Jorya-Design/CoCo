@@ -42,7 +42,7 @@ export function ExecutionGraph({ tasks, run, notes, selectedId, onSelect }: {
   }, [tasks, error]);
 
   if (error) return <div role="alert" className="alert">{error}</div>;
-  if (!tasks.length) return <div className="graph-empty"><GitBranch size={24}/><h2>Your implementation starts here</h2><p>Tasks will appear when the shared plan is ready.</p></div>;
+  if (!tasks.length) return <div className="graph-empty"><GitBranch size={24}/><h2>No implementation plan yet</h2><p>Agree on the shared plan in the conversation, then ask Codex to break it into implementation tasks.</p></div>;
 
   return <section className="execution-tree" aria-label="Execution dependency graph">
     <div className="tree-heading"><div><GitBranch size={15}/><strong>Implementation paths</strong><span>{tasks.length} tasks · {stages.length} stages</span></div><span className="tree-hint">Select a task to inspect or steer <ArrowUpRight size={12}/></span></div>

@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import * as Y from 'yjs';
-import { makeTasks } from '../shared/plan.ts';
 import { ORGANIZATION_ID, ORGANIZATION_NAME, ORGANIZATION_MEMBERS } from '../shared/organization.ts';
 
 // Idempotent bootstrap. Never overwrites an existing room or its CRDT history.
@@ -36,8 +35,7 @@ else {
 }
 if (!room) {
   const document = new Y.Doc();
-  document.getText('plan').insert(0, '# Multiplayer Codex harness\n\n## Outcome\nHelp a team turn an idea into a shared plan, then execute coding tasks in parallel.\n\n## CoCo Co\nA public hackathon workspace. Everyone can view the plan and conversation; its two verified members can edit.\n\n## Stack\n- React + TypeScript with shadcn/ui\n- Firebase Hosting and Authentication\n- Yjs CRDT updates stored and streamed through Firestore in London\n- Codex sessions on a Linux host for the execution milestone\n\n## Planning workflow\nDiscuss the idea, use the guided interview, refine this plan together, and approve a fixed snapshot.\n\n## Execution DAG\nEstablish shared contracts, fan out UI/service/test work, then reduce the commits into an integrated result with check evidence.\n\n## Next milestones\n- Configure the Google support email, then add Google sign-in\n- Connect the Linux Codex runtime and durable scheduler\n- Add adaptive interviews and animated agent suggestions\n');
-  document.getArray('tasks').push(makeTasks('Multiplayer Codex harness'));
+  document.getText('plan').insert(0, '# Multiplayer Codex harness\n\n## Outcome\nHelp a team turn an idea into a shared plan, then execute coding tasks in parallel.\n\n## CoCo Co\nA public hackathon workspace. Everyone can view the plan and conversation; its two verified members can edit.\n\n## Stack\n- React + TypeScript with shadcn/ui\n- Firebase Hosting and Authentication\n- Yjs CRDT updates stored and streamed through Firestore in London\n- Codex sessions on a Linux host for the execution milestone\n\n## Planning workflow\nDiscuss the idea, use the guided interview, refine this plan together, then agree on it and ask Codex to create the implementation plan.\n\n## Implementation planning\nCodex will subdivide the agreed plan into tasks at the end of the conversation. No implementation tasks are created in advance.\n\n## Next milestones\n- Configure the Google support email, then add Google sign-in\n- Connect the Linux Codex runtime and durable scheduler\n- Add adaptive interviews and animated agent suggestions\n');
   create(roomPath, { title: { stringValue: 'Multiplayer Codex harness' }, ownerUid: { stringValue: 'organization-bootstrap' }, orgId: { stringValue: ORGANIZATION_ID }, createdAt: now });
   create(roomPath + '/updates/initial', {
     bytes: { bytesValue: Buffer.from(Y.encodeStateAsUpdate(document)).toString('base64') },

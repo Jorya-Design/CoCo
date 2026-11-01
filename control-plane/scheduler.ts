@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { pullRequestSchema, taskSpecSchema, type ExecutionRun, type ExecutionTask, type ExecutionJob, type WorkerCommand } from '../shared/execution.ts';
 import { validateDag } from '../shared/plan.ts';
@@ -47,6 +48,11 @@ export class Scheduler {
         }
         let tasks: ExecutionTask[];
         try {
+          if (!runSnap.exists) {
+            if (typeof snapshot.implementationPlanId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(snapshot.implementationPlanId)) throw new Error('Generate an implementation plan first');
+            const implementation=(await tx.get(this.db.doc(`rooms/${request.roomId}/implementationPlans/${snapshot.implementationPlanId}`))).data();
+            if (!implementation || implementation.plan!==snapshot.plan || !isDeepStrictEqual(implementation.tasks,snapshot.tasks)) throw new Error('Approval must match a Codex implementation plan');
+          }
           tasks = taskSpecSchema.array().min(1).max(100).parse(snapshot.tasks).map(task=>({...task,status:'pending' as const}));
           validateDag(tasks);
           if (typeof snapshot.plan !== 'string' || snapshot.plan.length > 200000) throw new Error();

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeTasks } from '../shared/plan.ts';
+import { makeTasks } from './fixtures/tasks.ts';
 import type { Run } from '../shared/types.ts';
 import { canInterrupt, taskStages } from '../apps/web/src/lib/execution.ts';
 

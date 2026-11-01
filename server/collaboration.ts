@@ -3,8 +3,8 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { parse } from 'cookie';
 import type { Server } from 'node:http';
 import type { Store } from './store.ts';
-import { makePlan, makeTasks } from '../shared/plan.ts';
-import type { Presence, TaskSpec } from '../shared/types.ts';
+import { makePlan } from '../shared/plan.ts';
+import type { Presence } from '../shared/types.ts';
 
 export function collaboration(server: Server, store: Store) {
   const docs = new Map<string, Y.Doc>();
@@ -20,7 +20,6 @@ export function collaboration(server: Server, store: Store) {
     else {
       const room = store.room(id)!;
       doc.getText('plan').insert(0, makePlan(room.title));
-      doc.getArray<TaskSpec>('tasks').push(makeTasks(room.title));
     }
     docs.set(id, doc);
     doc.on('update', (update: Uint8Array, origin: WebSocket | undefined) => {

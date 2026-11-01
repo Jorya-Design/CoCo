@@ -13,6 +13,7 @@ beforeEach(async()=>{
     await setDoc(doc(db,'organizations','coco-co'),{name:'CoCo Co',memberEmails:ORGANIZATION_MEMBERS});
     await setDoc(doc(db,'rooms','demo'),{title:'CoCo',ownerUid:'alice',orgId:'coco-co',createdAt:serverTimestamp()});
     await setDoc(doc(db,'rooms','unrelated'),{title:'Unrelated',ownerUid:'eve',orgId:'other',createdAt:serverTimestamp()});
+    for (const plan of ['A plan','Plan']) await setDoc(doc(db,'rooms','demo','implementationPlans',plan === 'Plan' ? 'generated-plan' : 'generated'),{plan,tasks:[{id:'a'}]});
     await setDoc(doc(db,'rooms','demo','updates','initial'),{bytes:Bytes.fromUint8Array(new Uint8Array([1])),authorUid:'bootstrap',authorName:'CoCo',createdAt:serverTimestamp()});
   });
 });
@@ -123,7 +124,7 @@ test('approvals are immutable and clients cannot forge worker execution',async()
   const db=client('alice');
   await assertFails(setDoc(doc(db,'rooms','demo','runs','fake'),{status:'completed'}));
   const approval=doc(db,'rooms','demo','approvals','snapshot');
-  await assertSucceeds(setDoc(approval,{approvedBy:'alice',plan:'A plan',tasks:[{id:'a'}],status:'approved',createdAt:serverTimestamp()}));
+  await assertSucceeds(setDoc(approval,{approvedBy:'alice',implementationPlanId:'generated',plan:'A plan',tasks:[{id:'a'}],status:'approved',createdAt:serverTimestamp()}));
   await assertFails(updateDoc(approval,{plan:'Changed after approval'}));
   await assertSucceeds(getDoc(doc(guest(),'rooms','demo','approvals','snapshot')));
 });
@@ -139,7 +140,7 @@ test('worker health is public but only the trusted server can publish it',async(
 test('only verified members queue immutable approved snapshots and may cancel their execution',async()=>{
   const db=client('alice');
   const approval=doc(db,'rooms','demo','approvals','approved');
-  await setDoc(approval,{approvedBy:'alice',plan:'Plan',tasks:[{id:'a'}],status:'approved',createdAt:serverTimestamp()});
+  await setDoc(approval,{approvedBy:'alice',implementationPlanId:'generated-plan',plan:'Plan',tasks:[{id:'a'}],status:'approved',createdAt:serverTimestamp()});
   const value={roomId:'demo',approvalId:'approved',requestedBy:'alice',requestedByEmail:email('alice'),status:'queued',createdAt:serverTimestamp()};
   const path=['organizations','coco-co','executionRequests','request-1'] as const;
   await assertFails(setDoc(doc(guest(),...path),value));
@@ -295,4 +296,29 @@ test('either member may review a real proposal, but cannot forge its edit payloa
   await assertSucceeds(updateDoc(ref,{status:'apply_requested',decidedByEmail:email('bob')}));
   await assertFails(updateDoc(ref,{status:'applied'}));
   await assertFails(updateDoc(ref,{status:'rejected',decidedByEmail:email('bob')}));
+});
+
+test('implementation tasks are server-owned and approvals must match the generated plan',async()=>{
+  const db=client('alice');
+  const generated=doc(db,'rooms','demo','implementationPlans','generated');
+  await assertSucceeds(getDoc(doc(guest(),'rooms','demo','implementationPlans','generated')));
+  await assertFails(setDoc(generated,{plan:'Forged',tasks:[{id:'a'}]}));
+  const approval={approvedBy:'alice',implementationPlanId:'generated',plan:'A plan',tasks:[{id:'a'}],status:'approved',createdAt:serverTimestamp()};
+  await assertFails(setDoc(doc(db,'rooms','demo','approvals','wrong-plan'),{...approval,plan:'Changed'}));
+  await assertFails(setDoc(doc(db,'rooms','demo','approvals','wrong-tasks'),{...approval,tasks:[{id:'other'}]}));
+  await assertFails(setDoc(doc(db,'rooms','demo','approvals','missing-source'),{...approval,implementationPlanId:'missing'}));
+  await assertSucceeds(setDoc(doc(db,'rooms','demo','approvals','matches'),approval));
+});
+
+test('implementation requests require an agreed snapshot and matching room message',async()=>{
+  const db=client('alice');
+  async function queue(id:string,agreedPlan?:string){
+    const batch=writeBatch(db),prompt='Create implementation tasks from the agreed plan';
+    batch.set(doc(db,'organizations','coco-co','planRequests',id),{roomId:'demo',requestedBy:'alice',requestedByEmail:email('alice'),prompt,mode:'implementation',status:'queued',createdAt:serverTimestamp(),...(agreedPlan===undefined?{}:{agreedPlan})});
+    batch.set(doc(db,'rooms','demo','messages',id),{...message('alice'),text:prompt});
+    return batch.commit();
+  }
+  await assertFails(queue('no-agreement'));
+  await assertFails(queue('blank-agreement','   '));
+  await assertSucceeds(queue('agreed','Build an offline notes app.'));
 });

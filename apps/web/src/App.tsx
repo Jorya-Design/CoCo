@@ -24,8 +24,8 @@ import { authErrorMessage, conflictingEmail } from '@/lib/auth';
 import { Markdown } from '@/components/markdown';
 import { InterviewHistory } from '@/components/interview-history';
 import { sendInterviewAnswer, type SavedInterviewAnswer } from '@/lib/interview';
-import { replaceText } from '../../../shared/crdt.ts';
 import { validateDag } from '../../../shared/plan.ts';
+import { implementationMatchesPlan, type ImplementationPlan } from '../../../shared/implementation-plan.ts';
 import { getInterviewPrompt, nextInterviewIndex, planWithInterview, type InterviewPrompt } from '../../../shared/interview.ts';
 import type { Run, TaskSpec } from '../../../shared/types.ts';
 import { runtimeOnline, type RuntimeHealth } from '../../../shared/runtime.ts';
@@ -106,10 +106,10 @@ function VerifyEmail({firebase,user,onVerified}:{firebase:Firebase;user:User;onV
   return <main className="auth"><div className="auth-card"><Brand/><h1>Check your inbox.</h1><p>Verify {user.email} to enable member editing.</p><p role="status" style={{fontSize:12}}>{notice}</p><Button className="w-full" disabled={busy} onClick={()=>{setBusy(true);void user.reload().then(()=>user.getIdToken(true)).then(()=>{if(user.emailVerified)onVerified();else setNotice('The email has not been verified yet. Open the link, then try again.');}).catch(e=>setNotice(readable(e))).finally(()=>setBusy(false));}}>I’ve verified my email <ArrowRight size={14}/></Button><div className="flex justify-between mt-4 text-[11px] text-muted-foreground"><button onClick={()=>void sendEmailVerification(user).then(()=>setNotice('Verification email sent.')).catch(e=>setNotice(readable(e)))}>Resend email</button><button onClick={()=>void signOut(firebase.auth).catch(e=>setNotice(authErrorMessage(e)))}>Sign out</button></div></div></main>;
 }
 
-function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn, onReview }: { firebase: Firebase; user: User | null; canEdit: boolean; organization: Organization; room: Room; view: string; onSignIn: ()=>void; onReview:()=>void }) {
+function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn, onReview, onImplementation }: { firebase: Firebase; user: User | null; canEdit: boolean; organization: Organization; room: Room; view: string; onSignIn: ()=>void; onReview:()=>void; onImplementation:()=>void }) {
   const [provider, setProvider] = useState<FirestoreDocument | null>(null);
   const [plan, setPlan] = useState('');
-  const [tasks, setTasks] = useState<TaskSpec[]>([]);
+  const [implementation, setImplementation] = useState<ImplementationPlan | null>(null);
   const [sync, setSync] = useState<SyncState>('connecting');
   const [ready, setReady] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -125,7 +125,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
   const [historyReady, setHistoryReady] = useState(false);
   const [historyPending, setHistoryPending] = useState(false);
   const [editingPlan, setEditingPlan] = useState(false);
-  const [approval, setApproval] = useState<{ id: string; plan: string; tasks: TaskSpec[]; createdAt: {toDate:()=>Date} | null } | null>(null);
+  const [approval, setApproval] = useState<{ id: string; implementationPlanId: string; plan: string; tasks: TaskSpec[]; createdAt: {toDate:()=>Date} | null } | null>(null);
   const [pendingRun, setPendingRun] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [run, setRun] = useState<(Run & {error?:string}) | null>(null);
@@ -142,6 +142,9 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
   const setDraft = interviewOpen ? setInterviewDraft : setChatDraft;
   const snapshotPlan = useMemo(()=>planWithInterview(plan,history),[plan,history]);
   const wordCount = useMemo(()=>snapshotPlan.trim().split(/\s+/).filter(Boolean).length,[snapshotPlan]);
+  const tasks = implementation?.tasks ?? [];
+  const implementationCurrent = implementationMatchesPlan(implementation,snapshotPlan);
+  const generatingImplementation = planRequests.some(request=>request.mode==='implementation'&&['queued','running'].includes(request.status));
 
   useEffect(() => {
     const stop = onSnapshot(doc(firebase.db,'organizations','coco-co','runtime','worker-health'),
@@ -172,7 +175,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
     const p = new FirestoreDocument(firebase.db, room.id, user, canEdit, (state, detail) => { setSync(state); if (detail) setError(detail); },
       name=>{ setRemoteName(name); clearTimeout(remoteTimer); remoteTimer=setTimeout(()=>setRemoteName(''),1600); },
       ()=>setReady(true));
-    const update = () => { setPlan(p.document.getText('plan').toString()); setTasks(p.document.getArray<TaskSpec>('tasks').toArray()); };
+    const update = () => { setPlan(p.document.getText('plan').toString()); };
     p.document.on('update', update);
     setProvider(p);
     const beforeUnload = (event: BeforeUnloadEvent) => { if (p.hasUnsavedChanges()) { event.preventDefault(); event.returnValue=''; } };
@@ -181,6 +184,9 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
       snapshot=>setMessages(snapshot.docs.map(d=>({id:d.id,...d.data()} as ChatMessage))),e=>setError(e.message));
     const stopApprovals = onSnapshot(query(collection(firebase.db,'rooms',room.id,'approvals'),orderBy('createdAt'),limitToLast(1)),
       snapshot=>setApproval(snapshot.empty ? null : {id:snapshot.docs[0].id,...snapshot.docs[0].data()} as typeof approval),e=>setError(e.message));
+    setImplementation(null);
+    const stopImplementation = onSnapshot(query(collection(firebase.db,'rooms',room.id,'implementationPlans'),orderBy('createdAt'),limitToLast(1)),
+      snapshot=>setImplementation(snapshot.empty ? null : {id:snapshot.docs[0].id,...snapshot.docs[0].data()} as ImplementationPlan),e=>setError(e.message));
     const stopSteering = onSnapshot(collection(firebase.db,'rooms',room.id,'steering'), snapshot=>{
       setSteering(snapshot.docs.map(item=>({ ...item.data(), id:item.id } as SteeringNote)).sort((a,b)=>(a.createdAt?.toMillis() ?? Infinity)-(b.createdAt?.toMillis() ?? Infinity)));
     },e=>setError(e.message));
@@ -189,7 +195,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
       historyRef.current=entries;setHistory(entries);
       setHistoryReady(!snapshot.metadata.fromCache);setHistoryPending(snapshot.metadata.hasPendingWrites);
     },e=>{setHistoryReady(false);setError(e.message);});
-    return ()=>{ clearTimeout(remoteTimer); stopChat(); stopApprovals(); stopSteering(); stopInterview(); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
+    return ()=>{ clearTimeout(remoteTimer); stopChat(); stopApprovals(); stopImplementation(); stopSteering(); stopInterview(); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
   }, [firebase, room.id, user, canEdit]);
   useEffect(()=>{chatEnd.current?.scrollIntoView({block:'nearest',behavior:'smooth'});},[messages]);
 
@@ -217,9 +223,9 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
     setBusy(true); setError('');
     try {
       if (interviewOpen && interview) {
-        await sendInterviewAnswer(firebase.db,room.id,user,interview,draft,snapshotPlan);
+        await sendInterviewAnswer(firebase.db,room.id,user,interview,draft);
         setInterview(getInterviewPrompt(Math.max(interview.index+1,nextInterviewIndex(historyRef.current)),historyRef.current));
-      } else if(chatMode==='team') await sendMessage(firebase.db,room.id,user,draft,snapshotPlan,false);
+      } else if(chatMode==='team') await sendMessage(firebase.db,room.id,user,draft);
       else {
         await provider.flush();
         if(provider.hasUnsavedChanges())throw new Error('Wait for your plan changes to save before asking Codex.');
@@ -231,19 +237,31 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
     } catch(e) { setError(readable(e)); } finally { setBusy(false); }
   }
   async function approve() {
-    if (!provider || !user || !canEdit || !historyReady || historyPending) return;
+    if (!provider || !user || !canEdit || !historyReady || historyPending || !implementationCurrent || !implementation) return;
     setBusy(true); setError('');
     try {
       validateDag(tasks);
       if(snapshotPlan.length>200000)throw new Error('The plan and interview history exceed the 200,000-character approval limit. Your full history is still saved.');
       await provider.flush();
       if (provider.hasUnsavedChanges()) throw new Error('Save the latest edits before approving.');
-      await addDoc(collection(firebase.db,'rooms',room.id,'approvals'),{approvedBy:user.uid,plan:snapshotPlan,tasks,status:'approved',createdAt:serverTimestamp()});
+      await addDoc(collection(firebase.db,'rooms',room.id,'approvals'),{approvedBy:user.uid,implementationPlanId:implementation.id,plan:snapshotPlan,tasks,status:'approved',createdAt:serverTimestamp()});
     } catch(e) { setError(readable(e)); } finally { setBusy(false); }
   }
-  const unchanged = approval?.plan === snapshotPlan && JSON.stringify(approval?.tasks) === JSON.stringify(tasks);
+  const unchanged = implementationCurrent && approval?.implementationPlanId === implementation?.id && approval?.plan === snapshotPlan && JSON.stringify(approval?.tasks) === JSON.stringify(tasks);
+  async function createImplementation() {
+    if(!provider||!user||!canEdit||!ready||!historyReady||historyPending||busy||generatingImplementation)return;
+    setBusy(true);setError('');
+    try {
+      if(!plan.replace(/^#+\s.*$/gm,'').trim())throw new Error('Write the shared plan before agreeing on an implementation breakdown.');
+      if(snapshotPlan.length>200000)throw new Error('The plan and interview history exceed the 200,000-character planning limit.');
+      await provider.flush();
+      if(provider.hasUnsavedChanges())throw new Error('Wait for the shared plan to save before agreeing on it.');
+      await requestPlanAgent(firebase.db,room.id,user,'The room agrees on the shared plan. Create an implementation plan by subdividing it into concrete tasks with dependencies and acceptance checks.','implementation',snapshotPlan);
+      setInterviewOpen(false);
+    } catch(e){setError(readable(e));}finally{setBusy(false);}
+  }
   async function startRun() {
-    if(!approval || !user?.email || !canEdit || busy || pendingRun)return;
+    if(!approval || !unchanged || !user?.email || !canEdit || busy || pendingRun)return;
     setBusy(true);setError('');
     try {
       const request=await addDoc(collection(firebase.db,'organizations','coco-co','executionRequests'),{
@@ -267,24 +285,31 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn,
     {view === 'plan' ? <div className="room-grid">
       <section className="chat-panel">
         <div className="panel-heading"><h2><MessageSquare size={14}/> Conversation</h2><span className="eyebrow" style={{fontSize:8}}>{people.length} here</span></div>
-        <div className="chat-scroll"><div className="welcome-note"><strong><Sparkles size={13} className="inline mr-1"/> A good build starts with a conversation.</strong>Talk through the idea here. Shape the plan together, and use the interview to work through the details.<div className="mt-3"><Button variant="outline" size="sm" onClick={startInterview} disabled={!ready||!historyReady||!canEdit||busy||interviewOpen}><CircleHelp size={12}/> {history.length||interview?'Continue interview':'Grill me'}</Button></div></div>
-        {messages.map(message=><article className="message" key={message.id}><span className="avatar">{message.authorUid==='codex'?<Sparkles size={14}/>:initials(message.authorName)}</span><div><header><strong>{message.authorName}{message.authorUid==='codex'?' · AI':''}</strong><time>{message.createdAt?.toDate().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) || 'Sending'}</time></header>{message.authorUid==='codex'?<div className="markdown-content"><Markdown>{message.text}</Markdown></div>:<p>{message.text}</p>}{message.replyStatus==='queued'&&<small role="status">{workerCount?'Codex reply queued — waiting for the worker.':'Codex reply queued — worker offline.'}</small>}{message.replyStatus==='running'&&<small role="status">{workerCount?'Codex is replying…':'Codex connection interrupted — waiting for recovery.'}</small>}{message.replyStatus==='failed'&&<small role="status">{message.replyError}</small>}</div></article>)}<PlanAgentActivity requests={planRequests} online={!!workerCount} onDecision={decideAgent}/><div ref={chatEnd}/></div>
+        <div className="chat-scroll"><div className="welcome-note"><strong><Sparkles size={13} className="inline mr-1"/> A good build starts with a conversation.</strong>Talk through the idea here. Shape the plan together, use the interview to work through the details, then agree on the plan so Codex can create the implementation tasks.<div className="mt-3"><Button variant="outline" size="sm" onClick={startInterview} disabled={!ready||!historyReady||!canEdit||busy||interviewOpen}><CircleHelp size={12}/> {history.length||interview?'Continue interview':'Grill me'}</Button></div></div>
+        {messages.map(message=><article className="message" key={message.id}><span className="avatar">{initials(message.authorName)}</span><div><header><strong>{message.authorName}</strong><time>{message.createdAt?.toDate().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) || 'Sending'}</time></header>{message.authorUid==='codex'?<div className="markdown-content"><Markdown>{message.text}</Markdown></div>:<p>{message.text}</p>}</div></article>)}<PlanAgentActivity requests={planRequests} online={!!workerCount} onDecision={decideAgent}/><div ref={chatEnd}/></div>
         {interviewOpen && interview && <div className="question" aria-live="polite"><div className="flex justify-between items-center"><span className="eyebrow">Guided interview · Question {interview.index+1}</span><Button variant="ghost" size="icon-xs" aria-label="Pause interview" disabled={busy} onClick={()=>setInterviewOpen(false)}><X size={13}/></Button></div><strong>{interview.title}</strong><p>{interview.question}</p><div className="hint">Your answer joins the history at the bottom of the plan. <a href="#interview-history">View history ↗</a></div></div>}
         {canEdit ? <form className="composer" onSubmit={event=>void submit(event)}>{!interviewOpen&&<div className="composer-mode"><label htmlFor="chat-mode">Send to</label><select id="chat-mode" value={chatMode} disabled={busy} onChange={e=>setChatMode(e.target.value as typeof chatMode)}><option value="answer">Codex · ask about the plan</option><option value="suggest">Codex · suggest changes</option><option value="edit">Codex · edit the plan</option><option value="team">Team only</option></select></div>}<textarea ref={composer} aria-label={interviewOpen?'Answer the interview question':'Message the room'} placeholder={interviewOpen?interview?.placeholder:chatMode==='team'?'Share a thought with your team…':chatMode==='edit'?'Tell Codex what to change in the plan…':'Ask Codex about the plan…'} value={draft} onChange={e=>{setDraft(e.target.value);interact(e.target.value?'typing':'viewing');}} onBlur={()=>interact('viewing')} maxLength={8000} rows={3} readOnly={busy} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void submit(e);}}}/><div className="composer-footer"><span><Hash size={10} className="inline mr-1"/> {interviewOpen?'Saved in interview history':chatMode==='edit'?'Codex may edit the plan directly':chatMode==='suggest'?'Review changes before applying':chatMode==='answer'?'Codex sees the current plan & interview':'Shared with everyone in this room'}</span><Button type="submit" size="icon" className="h-7 w-7" disabled={busy||!draft.trim()||!ready||(interviewOpen&&!historyReady)} aria-label={interviewOpen?'Save interview answer':'Send message'}>{busy?<LoaderCircle size={12} className="animate-spin"/>:<Send size={12}/>}</Button></div></form> : <div className="welcome-note mt-5"><strong>Public view · read only</strong>CoCo Co members can sign in to edit the plan and join the conversation.{!user&&<Button variant="outline" size="sm" className="mt-3" onClick={onSignIn}>Member sign-in <ArrowRight size={12}/></Button>}</div>}
+        <div className="implementation-step" aria-label="Final planning stage">
+          <div className="eyebrow">Final planning stage</div>
+          <strong>{implementationCurrent?'Implementation plan ready':generatingImplementation?'Codex is creating the implementation plan':'Ready to agree on the plan?'}</strong>
+          <p className="hint">{implementationCurrent?`${tasks.length} tasks created by Codex from the agreed plan.`:implementation?'The shared plan has changed. Agree on the latest version so Codex can update its task breakdown.':'Once the room agrees, Codex will subdivide the shared plan into implementation tasks.'}</p>
+          {implementationCurrent?<Button variant="outline" size="sm" onClick={onImplementation}><GitBranch size={12}/> View implementation plan <ArrowRight size={12}/></Button>:<Button variant="outline" size="sm" onClick={()=>void createImplementation()} disabled={!canEdit||!ready||!historyReady||historyPending||busy||sync!=='saved'||generatingImplementation||!plan.replace(/^#+\s.*$/gm,'').trim()}>{generatingImplementation?<LoaderCircle size={12} className="animate-spin"/>:<Sparkles size={12}/>} {generatingImplementation?'Creating implementation plan…':implementation?'Agree & regenerate implementation plan':'Agree & create implementation plan'}</Button>}
+        </div>
       </section>
       <section className="plan-panel"><div className="panel-heading"><h2><FileText size={14}/> Shared plan</h2><Badge variant="secondary" className="text-[9px] font-normal">{unchanged?'Approved snapshot':'Working draft'}</Badge></div>
         <div className={'paper '+(remoteName?'remote-edit':'')}>
           <div className="paper-toolbar"><span><FileText size={11} className="inline mr-1"/> plan.md</span><div className="paper-actions">{remoteName?<span className="text-foreground">{remoteName} is editing</span>:syncDetail}{canEdit&&<Button variant="ghost" size="sm" disabled={!ready} aria-pressed={editingPlan} onClick={()=>setEditingPlan(!editingPlan)}>{editingPlan?<Check size={12}/>:<Pencil size={12}/>} {editingPlan?'Done editing':'Edit plan'}</Button>}</div></div>
-          {editingPlan&&canEdit&&provider ? <div onInput={()=>interact('editing')} onBlur={()=>interact('viewing')}><CollaborativePlan provider={provider} requests={planRequests}/></div> : <article aria-label="Shared plan" className="plan-rendered markdown-content">{ready?<Markdown>{plan}</Markdown>:<p className="loading">Loading the plan…</p>}</article>}
+          {editingPlan&&canEdit&&provider ? <div onInput={()=>interact('editing')} onBlur={()=>interact('viewing')}><CollaborativePlan provider={provider} requests={planRequests}/></div> : <article aria-label="Shared plan" className="plan-rendered markdown-content">{ready?<><Markdown>{plan}</Markdown>{!plan.replace(/^#+\s.*$/gm,'').trim()&&<p className="hint">Discuss the idea in the room, then edit this plan together or ask Codex to draft it.</p>}</>:<p className="loading">Loading the plan…</p>}</article>}
           <InterviewHistory history={history} loading={!historyReady} canContinue={canEdit&&ready&&historyReady&&!busy&&!interviewOpen} onContinue={startInterview}/>
           <div className="plan-footer"><span><Users size={10} className="inline mr-1"/> {organization.memberEmails.length} teammates · editing together</span><span>{wordCount} words{historyPending?' · Saving interview…':''}</span></div>
         </div>
         <p className="hint"><CheckCheck size={11} className="inline mr-1"/> Everyone can view this demo. Approvals include the plan and interview history as a fixed snapshot.</p>
       </section>
     </div> : view==='review' ? <PrReview run={run}/> : <section className="control">
-      <div className="control-heading"><div><div className="eyebrow mb-2">Plan & conversation → Implementation → PR to Review</div><h1>Implementation</h1><p>A clear path for every task. Open a node to inspect the work or give Codex direction.</p></div><Button onClick={()=>void approve()} disabled={!canEdit||!ready||!historyReady||historyPending||busy||sync!=='saved'||unchanged}><Check size={14}/>{unchanged?'Plan approved':'Approve plan'}</Button></div>
+      <div className="control-heading"><div><div className="eyebrow mb-2">Plan → implementation plan → implementation</div><h1>Implementation plan</h1><p>Codex breaks the room’s agreed plan into tasks. Review the breakdown, then approve it to start implementation.</p></div><Button onClick={()=>void approve()} disabled={!canEdit||!ready||!historyReady||historyPending||busy||sync!=='saved'||!implementationCurrent||unchanged}><Check size={14}/>{unchanged?'Implementation plan approved':'Approve implementation plan'}</Button></div>
       <div className="execution-summary"><span><FileText size={13}/>{displayedRun?'Run snapshot':unchanged?'Approved snapshot':approval?'Draft has changed':'Working draft'}</span><span><GitBranch size={13}/>{displayedTasks.length} tasks</span><span><Terminal size={13}/>{run ? `${run.mode==='demo'?'Demo run':'Latest run'} · ${run.status}` : 'No run yet'}</span><span><Terminal size={13}/>{workerCount ? `${workerCount} Linux worker connected` : 'Linux worker offline'}</span></div>
       {run && <div className="execution-scope" aria-label="Execution snapshot"><Button variant={!showDraft?'secondary':'ghost'} size="sm" aria-pressed={!showDraft} onClick={()=>{setShowDraft(false);setSelectedId(null);}}>Latest run</Button><Button variant={showDraft?'secondary':'ghost'} size="sm" aria-pressed={showDraft} onClick={()=>{setShowDraft(true);setSelectedId(null);}}>Working draft</Button><span>{showDraft?'Instructions for the next run':'Tasks from the approved run snapshot'}</span></div>}
+      {!displayedRun&&!implementationCurrent&&<div className="execution-scope mt-4"><span>{implementation?'The shared plan has changed. Return to the conversation and regenerate the implementation plan before approval.':'The conversation ends with Codex creating an implementation plan from the room’s agreed plan.'}</span><Button variant="outline" size="sm" onClick={onImplementation}>Return to conversation</Button></div>}
       <ExecutionGraph tasks={displayedTasks} run={displayedRun} notes={steering} selectedId={selectedId} onSelect={id=>{if(!displayedRun)setShowDraft(true);setSelectedId(id);}}/>
       <div className="execution-caption"><p><GitBranch size={13}/> One worker executes tasks in dependency order. Reduce tasks bring their results together.</p>{approval ? <span><CheckCheck size={12}/> Approved {approval.createdAt?.toDate().toLocaleString() || 'just now'}</span> : <span>Approve a snapshot when the plan is ready.</span>}</div>
       {run?.publication&&<div className="execution-scope mt-4"><GitPullRequest size={14}/><span className="!ml-0">Implementation complete · {run.pullRequest?'PR ready for review':run.status==='cancelled'?'Publication cancelled':run.status==='failed'?'Publication needs attention':'Codex is preparing the PR'}</span><Button variant="outline" size="sm" className="ml-auto" onClick={onReview}>PR to Review <ArrowRight size={12}/></Button></div>}
@@ -365,7 +390,7 @@ export function App({ firebase }: { firebase: Firebase }) {
         <div className="actions"><Button variant="ghost" size="icon-sm" aria-label={theme==='dark'?'Switch to light mode':'Switch to dark mode'} onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?<Sun size={15}/>:<Moon size={15}/>}</Button><Badge variant="secondary" className="text-[9px]">Public demo</Badge>{!canEdit&&<Badge variant="outline" className="text-[9px]">Read only</Badge>}<Button variant="outline" size="sm" onClick={()=>openDialog('members')}><Users size={12}/> Members</Button>{!user&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Sign in</Button>}{user&&!user.emailVerified&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Verify email</Button>}{user&&<Button className="mobile-sign-out" variant="ghost" size="icon-sm" aria-label="Sign out" onClick={()=>void signOut(firebase.auth).catch(e=>setError(authErrorMessage(e)))}><LogOut size={14}/></Button>}</div>
       </header>
       {room?<><nav className="view-tabs" aria-label="Room views"><button aria-current={view==='plan'?'page':undefined} className={'view-tab '+(view==='plan'?'selected':'')} onClick={()=>setView('plan')}><FileText size={13}/> Plan & conversation</button><ArrowRight className="journey-arrow" size={12} aria-hidden="true"/><button aria-current={view==='control'?'page':undefined} className={'view-tab '+(view==='control'?'selected':'')} onClick={()=>setView('control')}><GitBranch size={13}/> Implementation</button><ArrowRight className="journey-arrow" size={12} aria-hidden="true"/><button aria-current={view==='review'?'page':undefined} className={'view-tab '+(view==='review'?'selected':'')} onClick={()=>setView('review')}><GitPullRequest size={13}/> PR to Review</button></nav>
-        <RoomView key={room.id} firebase={firebase} user={user||null} canEdit={canEdit} organization={organization} room={room} view={view} onSignIn={()=>setAuthOpen(true)} onReview={()=>setView('review')}/>
+        <RoomView key={room.id} firebase={firebase} user={user||null} canEdit={canEdit} organization={organization} room={room} view={view} onSignIn={()=>setAuthOpen(true)} onReview={()=>setView('review')} onImplementation={()=>setView(view==='plan'?'control':'plan')}/>
       </>:<main className="empty"><div className="eyebrow">{organization.name} · public demo</div><h1>Think together.<br/>Build in parallel.</h1><p>A shared room for the conversation, a living plan for the details, and a clear path from idea to implementation. Browse the workspace freely; its two members can sign in to edit.</p>{canEdit?<Button onClick={()=>openDialog('create')}><Plus size={14}/> Create a planning room</Button>:<Button onClick={()=>setAuthOpen(true)}>Member sign-in <ArrowRight size={14}/></Button>}</main>}
       {error&&!dialog&&<div className="alert mx-6" role="alert">{error}</div>}
     </div>

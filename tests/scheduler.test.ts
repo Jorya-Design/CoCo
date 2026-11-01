@@ -4,7 +4,7 @@ import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { Scheduler } from '../control-plane/scheduler.ts';
 import { PlanningScheduler } from '../control-plane/planning-scheduler.ts';
-import { makeTasks } from '../shared/plan.ts';
+import { makeTasks } from './fixtures/tasks.ts';
 import type { ExecutionJob, LeaseKey } from '../shared/execution.ts';
 import { verifiedPullRequest } from '../shared/publication.ts';
 if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Scheduler tests require the Firestore emulator');
@@ -27,7 +27,8 @@ beforeEach(async()=>{
   for(const path of ['organizations','rooms','workerLeases','planningRoomLeases'])await db.recursiveDelete(db.collection(path));
   await db.doc('organizations/coco-co').set({memberEmails:['alice@example.com']});
   await db.doc('rooms/room-1').set({orgId:'coco-co'});
-  await db.doc('rooms/room-1/approvals/approved').set({status:'approved',plan:'Approved plan',tasks:makeTasks('A demo')});
+  await db.doc('rooms/room-1/implementationPlans/generated').set({plan:'Approved plan',tasks:makeTasks('A demo')});
+  await db.doc('rooms/room-1/approvals/approved').set({status:'approved',implementationPlanId:'generated',plan:'Approved plan',tasks:makeTasks('A demo')});
   await db.doc('organizations/coco-co/executionRequests/run-1').set({roomId:'room-1',approvalId:'approved',status:'queued',
     requestedBy:'alice',requestedByEmail:'alice@example.com',createdAt:Timestamp.now()});
 });
@@ -72,6 +73,7 @@ test('publication waits for every independent DAG branch and collects all of the
   const tasks=makeTasks('A demo').slice(0,2);
   tasks.push({...tasks[0],id:'independent',dependencies:[]});
   await db.doc('rooms/room-1/approvals/approved').update({tasks});
+  await db.doc('rooms/room-1/implementationPlans/generated').update({tasks});
   const commits=[];
   for(let i=0;i<3;i++) {
     const job=await scheduler.claim(identity);assert.ok(job);assert.equal(job.publication,undefined);
@@ -173,4 +175,10 @@ test('planning respects active coding work and revoked members, and shows model 
   await db.doc('organizations/coco-co').update({memberEmails:[]});
   assert.equal(await planner.report(identity,{type:'worker/heartbeat',...key(next)}),false);
   await queueMessage('third',3000);assert.equal(await planner.claim(identity),null);
+});
+
+test('new execution cannot start from default tasks without a generated implementation plan',async()=>{
+  await db.doc('rooms/room-1/implementationPlans/generated').delete();
+  assert.equal(await scheduler.claim(identity),null);
+  assert.equal((await db.doc('organizations/coco-co/executionRequests/run-1').get()).data()?.status,'failed');
 });

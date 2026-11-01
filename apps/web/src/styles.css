@@ -332,3 +332,8 @@ input, textarea { color: var(--foreground); }
 .document-tools .hint {margin:0 0 0 auto;font-size:10px}
 .agent-document-status {padding:8px 26px;background:var(--muted);font-size:11px;display:flex;gap:8px;align-items:center}
 .cm-agent-passage {background:color-mix(in srgb,var(--foreground) 10%,transparent);border-bottom:1px dashed var(--muted-foreground)}
+
+.implementation-step { flex-shrink: 0; border-top: 1px solid var(--border); margin-top: 18px; padding-top: 16px; }
+.implementation-step strong { display: block; font-size: 12px; font-weight: 500; margin-top: 6px; }
+.implementation-step .hint { margin-top: 5px; }
+.implementation-step button { margin-top: 10px; max-width: 100%; white-space: normal; height: auto; min-height: 30px; }

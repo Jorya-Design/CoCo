@@ -21,12 +21,16 @@ service cloud.firestore {
       match /planRequests/{requestId} {
         allow read: if orgMember();
         allow create: if orgMember()
-          && request.resource.data.keys().hasOnly(['roomId','requestedBy','requestedByEmail','prompt','mode','status','createdAt'])
+          && request.resource.data.keys().hasOnly(['roomId','requestedBy','requestedByEmail','prompt','mode','agreedPlan','status','createdAt'])
           && request.resource.data.requestedBy == request.auth.uid
           && request.resource.data.requestedByEmail == request.auth.token.email.lower()
           && request.resource.data.roomId is string && request.resource.data.roomId.matches('^[a-zA-Z0-9_-]{1,128}$')
           && publicRoom(request.resource.data.roomId)
-          && request.resource.data.mode in ['answer','suggest','edit']
+          && request.resource.data.mode in ['answer','suggest','edit','implementation']
+          && ((request.resource.data.mode == 'implementation'
+              && request.resource.data.agreedPlan is string && request.resource.data.agreedPlan.matches('(?s).*[^\\s].*')
+              && request.resource.data.agreedPlan.size() <= 200000)
+            || (request.resource.data.mode != 'implementation' && !request.resource.data.keys().hasAny(['agreedPlan'])))
           && request.resource.data.prompt is string && request.resource.data.prompt.matches('(?s).*[^\\s].*') && request.resource.data.prompt.size() <= 8000
           && request.resource.data.status == 'queued' && request.resource.data.createdAt == request.time
           && getAfter(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)/messages/$(requestId)).data.authorUid == request.auth.uid
@@ -157,13 +161,20 @@ service cloud.firestore {
           && request.resource.data.seenAt == request.time;
         allow delete: if orgMember() && publicRoom(roomId) && resource.data.uid == request.auth.uid;
       }
+      match /implementationPlans/{planId} {
+        allow read: if publicRoom(roomId);
+        allow write: if false;
+      }
       match /approvals/{approvalId} {
         allow read: if publicRoom(roomId);
         allow create: if orgMember() && publicRoom(roomId)
-          && request.resource.data.keys().hasOnly(['approvedBy', 'plan', 'tasks', 'status', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['approvedBy', 'implementationPlanId', 'plan', 'tasks', 'status', 'createdAt'])
           && request.resource.data.approvedBy == request.auth.uid
           && request.resource.data.plan is string && request.resource.data.plan.size() <= 200000
           && request.resource.data.tasks is list && request.resource.data.tasks.size() > 0 && request.resource.data.tasks.size() <= 100
+          && request.resource.data.implementationPlanId is string && request.resource.data.implementationPlanId.matches('^[a-zA-Z0-9_-]{1,128}$')
+          && request.resource.data.plan == get(/databases/$(database)/documents/rooms/$(roomId)/implementationPlans/$(request.resource.data.implementationPlanId)).data.plan
+          && request.resource.data.tasks == get(/databases/$(database)/documents/rooms/$(roomId)/implementationPlans/$(request.resource.data.implementationPlanId)).data.tasks
           && request.resource.data.status == 'approved'
           && request.resource.data.createdAt == request.time;
         allow update, delete: if false;

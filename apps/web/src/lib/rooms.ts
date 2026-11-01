@@ -4,8 +4,7 @@ import {
   type Firestore, type Timestamp,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
-import { makePlan, makeTasks } from '../../../../shared/plan.ts';
-import type { TaskSpec } from '../../../../shared/types.ts';
+import { makePlan } from '../../../../shared/plan.ts';
 import { ORGANIZATION_ID } from '../../../../shared/organization.ts';
 import { queuePlanningReply } from './planning.ts';
 
@@ -16,7 +15,6 @@ export async function createRoom(db: Firestore, user: User, title: string) {
   const room = doc(collection(db, 'rooms'));
   const document = new Y.Doc();
   document.getText('plan').insert(0, makePlan(title));
-  document.getArray<TaskSpec>('tasks').push(makeTasks(title));
   const batch = writeBatch(db);
   batch.set(room, { title, ownerUid: user.uid, orgId: ORGANIZATION_ID, createdAt: serverTimestamp() });
   batch.set(doc(db, 'rooms', room.id, 'updates', 'initial'), {
