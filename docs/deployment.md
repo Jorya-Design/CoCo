@@ -55,7 +55,7 @@ operator's existing gcloud login. It creates missing records without replacing
 room content. Routine CI deployments do not reseed application data.
 
 The Google provider is enabled and joryatm@gmail.com is saved as its support
-contact. Public-facing branding remains in #2; Google sign-in UI and account
+contact. The public-facing name is CoCo (#2 completed); Google sign-in UI and account
 linking remain in #3. The deployed UI currently uses verified email/password.
 Linux execution
 is a later service; no deployed page claims that a Codex run has completed.

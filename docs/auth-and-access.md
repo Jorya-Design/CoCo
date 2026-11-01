@@ -39,12 +39,11 @@ no editing access. A signed-in nonmember remains a read-only visitor.
 
 Google provider configuration was completed by a teammate and verified in the
 Firebase console: the provider is enabled and joryatm@gmail.com is saved as the
-support contact. The public-facing project name is still project-375045542679;
-changing it to CoCo remains in [#2](https://github.com/Jorya-Design/CoCo/issues/2).
+support contact. The public-facing project name is saved as CoCo, completing
+[#2](https://github.com/Jorya-Design/CoCo/issues/2).
 
 Google sign-in application integration remains deferred to
-[#3](https://github.com/Jorya-Design/CoCo/issues/3), after the remaining #2
-branding work. The current UI uses email/password; Google buttons, popup/redirect
+[#3](https://github.com/Jorya-Design/CoCo/issues/3). The current UI uses email/password; Google buttons, popup/redirect
 handling, and linking an existing email/password account are not implemented.
 Public read-only access and the two-member editing rules are already deployed.
 
