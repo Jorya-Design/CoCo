@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function member(roomId) {
+      return signedIn() && request.auth.token.email in get(/databases/$(database)/documents/rooms/$(roomId)).data.memberEmails;
+    }
+    function memberAfter(roomId) {
+      return signedIn() && request.auth.token.email in getAfter(/databases/$(database)/documents/rooms/$(roomId)).data.memberEmails;
+    }
+    match /rooms/{roomId} {
+      allow read: if signedIn() && request.auth.token.email in resource.data.memberEmails;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['title', 'ownerUid', 'memberEmails', 'createdAt'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
+        && request.resource.data.memberEmails == [request.auth.token.email]
+        && request.resource.data.createdAt == request.time;
+      allow update: if member(roomId) && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'memberEmails'])
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120
+        && request.resource.data.memberEmails is list && request.resource.data.memberEmails.size() <= 12
+        && request.auth.token.email in request.resource.data.memberEmails;
+      allow delete: if false;
+      match /updates/{updateId} {
+        allow read: if member(roomId);
+        allow create: if memberAfter(roomId)
+          && request.resource.data.keys().hasOnly(['bytes', 'authorUid', 'authorName', 'createdAt'])
+          && request.resource.data.bytes is bytes && request.resource.data.bytes.size() <= 262144
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.authorName is string && request.resource.data.authorName.size() <= 100
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+      match /messages/{messageId} {
+        allow read: if member(roomId);
+        allow create: if member(roomId)
+          && request.resource.data.keys().hasOnly(['authorUid', 'authorName', 'text', 'createdAt'])
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.authorName is string && request.resource.data.authorName.size() <= 100
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 8000
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+      match /presence/{presenceId} {
+        allow read: if member(roomId);
+        allow create, update: if member(roomId)
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'seenAt'])
+          && request.resource.data.uid == request.auth.uid
+          && (resource == null || resource.data.uid == request.auth.uid)
+          && request.resource.data.name is string && request.resource.data.name.size() <= 100
+          && request.resource.data.seenAt == request.time;
+        allow delete: if member(roomId) && resource.data.uid == request.auth.uid;
+      }
+      match /approvals/{approvalId} {
+        allow read: if member(roomId);
+        allow create: if member(roomId)
+          && request.resource.data.keys().hasOnly(['approvedBy', 'plan', 'tasks', 'status', 'createdAt'])
+          && request.resource.data.approvedBy == request.auth.uid
+          && request.resource.data.plan is string && request.resource.data.plan.size() <= 200000
+          && request.resource.data.tasks is list && request.resource.data.tasks.size() > 0 && request.resource.data.tasks.size() <= 100
+          && request.resource.data.status == 'approved'
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+      match /runs/{runId} {
+        allow read: if member(roomId);
+        allow write: if false;
+      }
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
