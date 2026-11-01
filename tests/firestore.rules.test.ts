@@ -158,6 +158,19 @@ test('presence belongs to its author and messages cannot impersonate members',as
   await assertFails(setDoc(doc(client('bob'),'rooms','demo','messages','fake'),message('alice')));
 });
 
+test('collaborator activity is bounded, member-owned and never accepts draft contents',async()=>{
+  const db=client('alice');
+  const path=doc(db,'rooms/demo/presence/live-session');
+  const value={uid:'alice',name:'Alice',seenAt:serverTimestamp(),active:true,view:'control',activity:'viewing',taskId:'task-1'};
+  await assertSucceeds(setDoc(path,value));
+  await assertSucceeds(updateDoc(path,{view:'plan',activity:'typing',taskId:null,seenAt:serverTimestamp()}));
+  await assertFails(updateDoc(path,{activity:'executing-shell',seenAt:serverTimestamp()}));
+  await assertFails(updateDoc(path,{draft:'private unfinished message',seenAt:serverTimestamp()}));
+  await assertFails(setDoc(doc(client('bob'),'rooms/demo/presence/live-session'),{...value,uid:'bob'}));
+  await assertFails(setDoc(doc(client('eve'),'rooms/demo/presence/outsider'),{...value,uid:'eve'}));
+  await assertSucceeds(getDoc(doc(guest(),'rooms/demo/presence/live-session')));
+});
+
 const steering=(uid:string)=>({taskId:'interface',runId:null as string|null,text:'Use accessible controls',timing:'next',status:'queued',authorUid:uid,authorName:uid,createdAt:serverTimestamp()});
 test('steering is public to read and limited to verified members to create',async()=>{
   const note=doc(client('alice'),'rooms','demo','steering','note');
