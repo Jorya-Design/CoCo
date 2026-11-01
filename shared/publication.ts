@@ -40,7 +40,8 @@ export function verifiedPullRequest(value: unknown, runId: string, commit: strin
     || typeof pr.title !== 'string' || !pr.title.trim() || pr.title.length > 256
     || pr.headRefName !== target.branch || pr.baseRefName !== target.base
     || pr.headRefOid !== commit || !/^[a-f0-9]{40}$/.test(commit)
-    || pr.state !== 'OPEN' || pr.isDraft !== false || pr.isCrossRepository !== false) {
+    || pr.state !== 'OPEN' || pr.isDraft !== false || pr.isCrossRepository !== false
+    || (pr.author as {login?:unknown} | undefined)?.login !== 'joryatm') {
     throw new Error('GitHub did not confirm the final pull request');
   }
   return {number: pr.number as number, url: pr.url as string, title: pr.title,

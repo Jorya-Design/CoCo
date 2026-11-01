@@ -40,8 +40,17 @@ input, textarea { color: var(--foreground); }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 21px; font-weight: 600; letter-spacing: -.8px; }
 .brand-mark { display: grid; place-items: center; width: 29px; height: 29px; background: var(--foreground); border-radius: 6px; color: var(--background); }
 .eyebrow { text-transform: uppercase; font-size: 10px; letter-spacing: 1.3px; color: var(--muted); font-weight: 500; }
-.room-list { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.repo-group { margin-top: 12px; min-width: 0; }
+.repo-toggle { display: flex; align-items: center; gap: 7px; padding: 8px 6px; border-radius: 6px; color: var(--foreground); font-size: 12px; font-weight: 500; cursor: pointer; list-style: none; }
+.repo-toggle::-webkit-details-marker { display: none; }
+.repo-toggle:hover { background: var(--secondary); }
+.repo-toggle svg { flex-shrink: 0; color: var(--muted); }
+.repo-chevron { transition: transform .15s; }
+.repo-group[open] > .repo-toggle .repo-chevron { transform: rotate(90deg); }
+.repo-kind { margin-left: auto; color: var(--muted); font-size: 9px; font-weight: 400; }
+.room-list { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0 18px; padding-left: 8px; border-left: 1px solid var(--border); }
 .room-link { text-align: left; display: flex; gap: 9px; align-items: center; padding: 10px; border-radius: 6px; color: var(--muted); border: none; background: transparent; width: 100%; font-size: 12px; transition: background .15s, color .15s; }
+.room-link svg { flex-shrink: 0; }
 .room-link:hover { background: var(--secondary); color: var(--foreground); }
 .room-link.active { background: var(--secondary); color: var(--foreground); font-weight: 500; }
 .sidebar-bottom { margin-top: auto; border-top: 1px solid var(--border); padding-top: 18px; }
@@ -221,7 +230,7 @@ input, textarea { color: var(--foreground); }
   .sidebar > .px-2, .sidebar > .mt-2 { display: none; }
   .sidebar > div:has(.room-list) { grid-column: 1 / -1; }
   .sidebar .brand .eyebrow { display: none; }
-  .sidebar .room-list { flex-direction: row; overflow: auto; margin-top: 8px; }
+  .sidebar .room-list { flex-direction: row; overflow: auto; margin: 8px 0 0; padding-left: 0; border-left: 0; }
   .sidebar .room-link { white-space: nowrap; width: auto; flex-shrink: 0; }
   .sidebar-bottom { display: none; }
   .topbar { padding: 12px 16px; flex-wrap: wrap; min-height: 60px; }

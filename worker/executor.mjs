@@ -36,6 +36,8 @@ for (const commit of job.dependencyCommits) await git('-C',cwd,'cherry-pick','--
 }
 
 if(job.publication) {
+  const who=await execFile('gh',['api','user','--jq','.login'],{cwd,env:agentEnv});
+  if(who.stdout.trim()!=='joryatm')throw new Error('Unexpected GitHub publication identity');
   await git('-C',cwd,'remote','add','origin',`https://github.com/${job.publication.repository}.git`);
   await execFile('gh',['auth','setup-git','--hostname','github.com'],{cwd,env:agentEnv});
 }
@@ -110,7 +112,7 @@ try {
     const branch=(await git('-C',cwd,'branch','--show-current')).stdout.trim();
     if(branch!==job.publication.branch)throw new Error('Unexpected publication branch');
     const response=await execFile('gh',['pr','view',branch,'--repo',job.publication.repository,
-      '--json','number,url,title,headRefName,baseRefName,headRefOid,state,isDraft,isCrossRepository'],{cwd,env:agentEnv,maxBuffer:65536});
+      '--json','number,url,title,headRefName,baseRefName,headRefOid,state,isDraft,isCrossRepository,author'],{cwd,env:agentEnv,maxBuffer:65536});
     const pullRequest=verifiedPullRequest(JSON.parse(response.stdout),job.runId,head);
     console.log(redact(JSON.stringify({success:true,commit:head,pullRequest,output})));
   } else {

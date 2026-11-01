@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile, type OAuthCredential, type User } from 'firebase/auth';
 import type { FirebaseError } from 'firebase/app';
 import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
-import { ArrowRight, Check, CheckCheck, CircleHelp, FileText, GitBranch, GitPullRequest, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Pencil, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
+import { ArrowRight, Check, CheckCheck, ChevronRight, CircleHelp, FileText, FolderGit2, GitBranch, GitPullRequest, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Pencil, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -356,7 +356,10 @@ export function App({ firebase }: { firebase: Firebase }) {
       <div className="px-2"><div className="text-sm font-medium">{organization.name}</div><div className="hint !mt-1">Public hackathon workspace</div></div>
       <Button variant="outline" size="sm" className="justify-start text-xs" onClick={()=>openDialog('create')} disabled={!canEdit}><Plus size={13}/> New room</Button>
       <div><div className="eyebrow">Org rooms <span className="float-right">{rooms.length}</span></div>
-        <nav className="room-list" aria-label="Planning rooms">{rooms.map(r=><button className={'room-link '+(r.id===roomId?'active':'')} key={r.id} onClick={()=>navigate(r.id)}><MessageSquare size={13}/><span className="truncate">{r.title}</span></button>)}{!rooms.length&&<p className="hint">The demo room is getting ready.</p>}</nav>
+        <details className="repo-group" open>
+          <summary className="repo-toggle"><ChevronRight size={12} className="repo-chevron" aria-hidden="true"/><FolderGit2 size={14} aria-hidden="true"/><span>CoCo</span><span className="repo-kind">Repo</span></summary>
+          <nav className="room-list" aria-label="CoCo planning rooms">{rooms.map(r=><button className={'room-link '+(r.id===roomId?'active':'')} key={r.id} onClick={()=>navigate(r.id)}><MessageSquare size={13}/><span className="truncate">{r.title}</span></button>)}{!rooms.length&&<p className="hint">The demo room is getting ready.</p>}</nav>
+        </details>
       </div>
       <div className="mt-2"><div className="eyebrow">Workspace</div><button className="room-link mt-2" onClick={()=>openDialog('members')}><Users size={13}/> Members <span className="ml-auto text-[10px]">{organization.memberEmails.length}</span></button><a className="room-link" href="https://github.com/Jorya-Design/CoCo" target="_blank" rel="noreferrer"><GitBranch size={13}/> Source & documentation</a></div>
       <div className="sidebar-bottom"><div className="person"><span className="avatar">{user?initials(user.displayName||user.email||'You'):'G'}</span><div className="min-w-0"><strong className="font-medium block truncate">{user?.displayName||user?.email?.split('@')[0]||'Guest'}</strong><span className="text-[9px] text-muted-foreground">{canEdit?'CoCo Co member':'Read-only visitor'}</span></div>{user?<button className="ml-auto" aria-label="Sign out" onClick={()=>void signOut(firebase.auth).catch(e=>setError(authErrorMessage(e)))}><LogOut size={13}/></button>:<button className="ml-auto text-[10px] text-primary" onClick={()=>setAuthOpen(true)}>Sign in</button>}</div></div>

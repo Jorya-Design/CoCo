@@ -5,7 +5,7 @@ import { workerCommandSchema } from '../shared/execution.ts';
 
 const commit='a'.repeat(40);
 const githubPr={number:42,url:'https://github.com/Jorya-Design/CoCo/pull/42',title:'Build the approved journey',
-  headRefName:'codex/coco-run-1',baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false};
+  headRefName:'codex/coco-run-1',baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false,author:{login:'joryatm'}};
 
 test('publication confirms GitHub repository, branches, open state and the exact final commit',()=>{
   const pr=verifiedPullRequest(githubPr,'run-1',commit);
@@ -13,7 +13,7 @@ test('publication confirms GitHub repository, branches, open state and the exact
   assert.equal(pr.branch,publicationTarget('run-1').branch);
   for(const change of [{url:'https://example.com/pull/42'},{number:43},{headRefName:'main'},
     {baseRefName:'other'},{headRefOid:'b'.repeat(40)},{state:'CLOSED'},{state:'MERGED'},
-    {isDraft:true},{isCrossRepository:true},{title:''}]) {
+    {isDraft:true},{isCrossRepository:true},{title:''},{author:{login:'someone-else'}}]) {
     assert.throws(()=>verifiedPullRequest({...githubPr,...change},'run-1',commit));
   }
   assert.throws(()=>verifiedPullRequest(null,'run-1',commit));
