@@ -11,9 +11,9 @@
     "emulators": "firebase emulators:start --project demo-coco",
     "seed:emulators": "node scripts/seed-emulators.mjs && node --import tsx scripts/seed-organization.ts --emulator",
     "seed:organization": "node --import tsx scripts/seed-organization.ts",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-coco 'node --import tsx --test tests/firestore.rules.test.ts'",
+    "test:rules": "firebase emulators:exec --only auth,firestore --project demo-coco 'node --import tsx --test --test-concurrency=1 tests/firestore.rules.test.ts tests/auth.emulator.test.ts'",
     "typecheck": "tsc --noEmit && npm run typecheck -w apps/web",
-    "test": "node --import tsx --test tests/plan.test.ts tests/crdt.test.ts tests/execution.test.ts",
+    "test": "node --import tsx --test tests/plan.test.ts tests/crdt.test.ts tests/execution.test.ts tests/auth.test.ts",
     "deploy": "npm run build && firebase deploy --only hosting,firestore --project coco-3471c"
   },
   "dependencies": {

@@ -24,12 +24,15 @@ public demo. Unrelated orgs and room paths have no public grant.
 
 ## Application authentication
 
-Production currently uses Firebase Authentication email/password accounts with
-email verification, password reset, and Firebase-managed client sessions.
+The application uses Firebase Authentication Google sign-in as its primary
+method, with email/password registration, email verification, and password reset
+as a fallback. Firebase manages and restores client sessions.
 
 1. Visitors can browse CoCo Co without signing in.
-2. A member signs in using the Firebase web SDK.
-3. A new account verifies its email before it can edit.
+2. A member selects Sign in → Continue with Google and chooses their member
+   Google account. Other Google accounts remain read-only.
+3. Google supplies the verified email claim for these Gmail members. A new
+   password account must verify its email before it can edit.
 4. The app reloads the user and refreshes the ID token after verification.
 5. Firestore rules require email_verified=true and a lowercased email claim
    matching one of the organization's two member emails before allowing writes.
@@ -42,10 +45,35 @@ Firebase console: the provider is enabled and joryatm@gmail.com is saved as the
 support contact. The public-facing project name is saved as CoCo, completing
 [#2](https://github.com/Jorya-Design/CoCo/issues/2).
 
-Google sign-in application integration remains deferred to
-[#3](https://github.com/Jorya-Design/CoCo/issues/3). The current UI uses email/password; Google buttons, popup/redirect
-handling, and linking an existing email/password account are not implemented.
-Public read-only access and the two-member editing rules are already deployed.
+The Google button calls `signInWithPopup` with an account picker and the default
+Google profile/email scopes. It does not request Gmail, Drive, or other Google
+API access. Blocked windows, cancelled sign-in, unauthorized domains, network
+failures, and provider configuration errors have visible recovery messages.
+Pop-up sign-in avoids cross-site redirect storage dependencies. Users whose
+browser blocks it can allow pop-ups for CoCo and retry; no redirect is started
+silently after cancellation.
+
+Firebase automatically resolves a Google-hosted Gmail identity to an existing
+account with the same email. For other provider collisions, the UI keeps the
+pending Google credential in component memory, locks the existing email, asks
+for the existing CoCo password, and calls `linkWithCredential` on that signed-in
+user. The app waits for linking and token refresh before closing sign-in. It does
+not delete accounts, move documents, or store OAuth credentials in local/session
+storage. Closing the sign-in screen discards any pending linking credential.
+
+The production SDK configuration and Firebase public project configuration were
+checked on 1 November 2026. `coco-3471c.web.app` and
+`coco-3471c.firebaseapp.com` are authorized domains; the SDK uses
+`coco-3471c.firebaseapp.com` as its auth domain.
+
+Verification covers Google sign-in for both member emails in the Auth emulator,
+UID preservation for existing verified password users, existing authored content,
+explicit provider linking, refreshed Google claims, sign-out, anonymous browsing,
+and rejection of verified Google outsiders. These emulator checks do not
+substitute for each member completing sign-in with their real Google account in
+production. The production authorization endpoint was also checked: it returns a
+Google sign-in URL at accounts.google.com. No real member credentials are used
+in tests.
 
 The public Firebase SDK configuration is loaded from Hosting's
 /__/firebase/init.json endpoint. Its API key identifies the app; Firestore rules
@@ -54,6 +82,7 @@ are sent to the browser.
 
 Implementation: [Firebase initialization](../apps/web/src/lib/firebase.ts),
 [auth and org UI](../apps/web/src/App.tsx),
+[sign-in error recovery](../apps/web/src/lib/auth.ts),
 [Firestore rules](../firestore.rules), and
 [organization bootstrap](../scripts/seed-organization.ts).
 
@@ -212,4 +241,7 @@ roles when retiring the integration. Review rules and IAM changes independently
 from application org membership, and update this inventory when grants change.
 
 Authorization regression coverage:
-[Firestore emulator tests](../tests/firestore.rules.test.ts).
+[Firestore emulator tests](../tests/firestore.rules.test.ts) and
+[Google identity integration tests](../tests/auth.emulator.test.ts).
+`npm run test:rules` starts both Auth and Firestore emulators and runs these suites
+serially because they reset the disposable demo-coco project.
