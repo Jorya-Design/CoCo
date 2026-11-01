@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateProfile, type User } from 'firebase/auth';
+import { createUserWithEmailAndPassword, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile, type OAuthCredential, type User } from 'firebase/auth';
+import type { FirebaseError } from 'firebase/app';
 import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import * as Y from 'yjs';
 import { ArrowRight, Check, CheckCheck, CircleHelp, FileText, GitBranch, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
@@ -13,6 +14,7 @@ import { FirestoreDocument, type SyncState } from '@/lib/collaboration';
 import { ExecutionGraph } from '@/components/execution-graph';
 import { TaskInspector } from '@/components/task-inspector';
 import type { SteeringNote } from '@/lib/steering';
+import { authErrorMessage, conflictingEmail } from '@/lib/auth';
 import { replaceText } from '../../../shared/crdt.ts';
 import { interviewQuestions, validateDag } from '../../../shared/plan.ts';
 import type { Run, TaskSpec } from '../../../shared/types.ts';
@@ -22,7 +24,7 @@ const initials = (name: string) => name.split(/[ @]/).filter(Boolean).slice(0, 2
 const readable = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
 function Brand() { return <div className="brand"><span className="brand-mark"><Layers3 size={18}/></span> CoCo <span className="eyebrow" style={{fontSize:8,marginLeft:5}}>workspace</span></div>; }
 
-function SignIn({ firebase }: { firebase: Firebase }) {
+function SignIn({ firebase, onBusyChange, onAuthenticated }: { firebase: Firebase; onBusyChange: (busy: boolean) => void; onAuthenticated: (user: User) => void }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState(firebase.emulated ? 'suryansh@gmail.com' : '');
@@ -30,25 +32,59 @@ function SignIn({ firebase }: { firebase: Firebase }) {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState('');
+  const [pendingGoogle, setPendingGoogle] = useState<{email: string; credential: OAuthCredential} | null>(null);
+  function working(value: boolean) { setBusy(value); onBusyChange(value); }
+  async function google() {
+    if (busy) return;
+    working(true); setError(''); setNotice(''); setPendingGoogle(null);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try {
+      const result = await signInWithPopup(firebase.auth, provider);
+      await result.user.getIdToken(true);
+      onAuthenticated(result.user);
+    } catch (error) {
+      const existingEmail = conflictingEmail(error);
+      const credential = existingEmail ? GoogleAuthProvider.credentialFromError(error as FirebaseError) : null;
+      if (existingEmail && credential) {
+        setPendingGoogle({ email: existingEmail, credential }); setEmail(existingEmail); setCreating(false);
+        setNotice('Sign in with your existing CoCo password once to connect Google. Your account and shared work will stay together.');
+      } else setError(authErrorMessage(error));
+    } finally { working(false); }
+  }
   async function login() {
-    setBusy(true); setError('');
+    if (busy) return;
+    working(true); setError('');
     try {
       if (creating) {
         const result = await createUserWithEmailAndPassword(firebase.auth, email.trim(), password);
         await updateProfile(result.user,{displayName:name.trim().slice(0,100)});
         await sendEmailVerification(result.user);
-      } else await signInWithEmailAndPassword(firebase.auth, email.trim(), password);
-    } catch (e) { setError(readable(e)); } finally { setBusy(false); }
+        onAuthenticated(result.user);
+      } else {
+        const result = await signInWithEmailAndPassword(firebase.auth, email.trim(), password);
+        if (pendingGoogle) {
+          if (result.user.email?.toLowerCase() !== pendingGoogle.email) throw new Error('Sign in to the same email address to connect Google.');
+          await linkWithCredential(result.user, pendingGoogle.credential);
+          await result.user.reload();
+          await result.user.getIdToken(true);
+          setPendingGoogle(null);
+        }
+        onAuthenticated(result.user);
+      }
+    } catch (e) { setError(authErrorMessage(e)); } finally { working(false); }
   }
   return <main className="auth"><div className="auth-card"><Brand/><div className="eyebrow" style={{marginTop:45}}>A shared space to ship</div><h1>Think together.<br/>Build in parallel.</h1><p>Turn the conversation into a plan, then give every piece of work a clear path forward.</p>
+    <Button type="button" className="w-full mt-6 h-10" disabled={busy} onClick={()=>void google()}><svg aria-hidden="true" viewBox="0 0 48 48" className="size-4"><path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.2H24v8h11a9.4 9.4 0 0 1-4.1 6.2v5.2h6.7c3.9-3.6 6-8.9 6-15.2Z"/><path fill="#34A853" d="M24 44c5.5 0 10.1-1.8 13.6-5l-6.7-5.2c-1.9 1.3-4.2 2-6.9 2-5.3 0-9.8-3.6-11.4-8.4H5.7v5.3A20.5 20.5 0 0 0 24 44Z"/><path fill="#FBBC05" d="M12.6 27.4a12.3 12.3 0 0 1 0-7.8v-5.3H5.7a20.5 20.5 0 0 0 0 18.4l6.9-5.3Z"/><path fill="#EA4335" d="M24 11.2c3 0 5.7 1 7.8 3.1l5.8-5.8A19.6 19.6 0 0 0 24 3 20.5 20.5 0 0 0 5.7 14.3l6.9 5.3C14.2 14.8 18.7 11.2 24 11.2Z"/></svg> Continue with Google</Button>
+    <div className="auth-divider"><span>or use a CoCo password</span></div>
     <form onSubmit={e=>{e.preventDefault();void login();}} className="space-y-3 mt-6">
       {firebase.emulated&&<Badge variant="secondary">Local Firebase emulators</Badge>}
       {creating&&<Input aria-label="Your name" autoComplete="name" value={name} onChange={e=>setName(e.target.value)} placeholder="Your name" maxLength={100} required/>}
-      <Input type="email" aria-label="Email address" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email address" required/>
-      <Input type="password" aria-label="Password" autoComplete={creating?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" minLength={creating?10:undefined} required/>
-      <Button className="w-full" type="submit" disabled={busy}>{busy?<LoaderCircle className="animate-spin" size={15}/>:<Users size={15}/>} {creating?'Create your account':'Sign in to CoCo'} <ArrowRight size={15}/></Button>
+      <Input type="email" aria-label="Email address" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email address" readOnly={!!pendingGoogle} required/>
+      <Input type="password" aria-label="CoCo password" autoComplete={creating?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your CoCo password" minLength={creating?10:undefined} required/>
+      <Button className="w-full" variant="outline" type="submit" disabled={busy}>{busy?<LoaderCircle className="animate-spin" size={15}/>:<Users size={15}/>} {pendingGoogle?'Sign in & connect Google':creating?'Create your account':'Sign in to CoCo'} <ArrowRight size={15}/></Button>
     </form>
-    <div className="flex justify-between mt-4 text-[10px] text-muted-foreground"><button onClick={()=>{setCreating(!creating);setError('');setNotice('');}}>{creating?'Already have an account?':'Create an account'}</button>{!creating&&<button onClick={()=>{setError('');if(!email){setError('Enter your email address first.');return;}void sendPasswordResetEmail(firebase.auth,email.trim()).then(()=>setNotice('If this account exists, a password reset email is on its way.')).catch(e=>setError(readable(e)));}}>Forgot password?</button>}</div>
+    <div className="flex justify-between mt-4 text-[10px] text-muted-foreground"><button disabled={busy} onClick={()=>{setCreating(!creating);setPendingGoogle(null);setError('');setNotice('');}}>{pendingGoogle?'Use another account':creating?'Already have an account?':'Create an account'}</button>{!creating&&<button disabled={busy} onClick={()=>{setError('');if(!email){setError('Enter your email address first.');return;}void sendPasswordResetEmail(firebase.auth,email.trim()).then(()=>setNotice('If this account exists, a password reset email is on its way.')).catch(e=>setError(authErrorMessage(e)));}}>Forgot password?</button>}</div>
     {notice&&<p role="status" style={{fontSize:11}}>{notice}</p>}{error && <div className="alert" role="alert">{error}</div>}<p style={{fontSize:10,marginTop:22}}>CoCo Co is a public hackathon workspace. Its two members can edit after signing in; everyone can browse.</p>
   </div></main>;
 }
@@ -56,7 +92,7 @@ function SignIn({ firebase }: { firebase: Firebase }) {
 function VerifyEmail({firebase,user,onVerified}:{firebase:Firebase;user:User;onVerified:()=>void}) {
   const [notice,setNotice]=useState('Open the verification link in your email to join your team.');
   const [busy,setBusy]=useState(false);
-  return <main className="auth"><div className="auth-card"><Brand/><h1>Check your inbox.</h1><p>Verify {user.email} to enable member editing.</p><p role="status" style={{fontSize:12}}>{notice}</p><Button className="w-full" disabled={busy} onClick={()=>{setBusy(true);void user.reload().then(()=>user.getIdToken(true)).then(()=>{if(user.emailVerified)onVerified();else setNotice('The email has not been verified yet. Open the link, then try again.');}).catch(e=>setNotice(readable(e))).finally(()=>setBusy(false));}}>I’ve verified my email <ArrowRight size={14}/></Button><div className="flex justify-between mt-4 text-[11px] text-muted-foreground"><button onClick={()=>void sendEmailVerification(user).then(()=>setNotice('Verification email sent.')).catch(e=>setNotice(readable(e)))}>Resend email</button><button onClick={()=>void signOut(firebase.auth)}>Sign out</button></div></div></main>;
+  return <main className="auth"><div className="auth-card"><Brand/><h1>Check your inbox.</h1><p>Verify {user.email} to enable member editing.</p><p role="status" style={{fontSize:12}}>{notice}</p><Button className="w-full" disabled={busy} onClick={()=>{setBusy(true);void user.reload().then(()=>user.getIdToken(true)).then(()=>{if(user.emailVerified)onVerified();else setNotice('The email has not been verified yet. Open the link, then try again.');}).catch(e=>setNotice(readable(e))).finally(()=>setBusy(false));}}>I’ve verified my email <ArrowRight size={14}/></Button><div className="flex justify-between mt-4 text-[11px] text-muted-foreground"><button onClick={()=>void sendEmailVerification(user).then(()=>setNotice('Verification email sent.')).catch(e=>setNotice(readable(e)))}>Resend email</button><button onClick={()=>void signOut(firebase.auth).catch(e=>setNotice(authErrorMessage(e)))}>Sign out</button></div></div></main>;
 }
 
 function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn }: { firebase: Firebase; user: User | null; canEdit: boolean; organization: Organization; room: Room; view: string; onSignIn: ()=>void }) {
@@ -187,6 +223,7 @@ export function App({ firebase }: { firebase: Firebase }) {
   const [roomId,setRoomId] = useState(new URLSearchParams(location.search).get('room'));
   const [view,setView] = useState('plan');
   const [authOpen,setAuthOpen] = useState(false);
+  const [authBusy,setAuthBusy] = useState(false);
   const [dialog,setDialog] = useState<'create'|'members'|null>(null);
   const [value,setValue] = useState('');
   const [error,setError] = useState('');
@@ -202,9 +239,6 @@ export function App({ firebase }: { firebase: Firebase }) {
   const canEdit=!!user?.emailVerified && !!user.email && organization.memberEmails.includes(user.email.toLowerCase());
 
   useEffect(()=>onAuthStateChanged(firebase.auth,setUser),[firebase]);
-  useEffect(()=>{
-    if(user?.emailVerified)setAuthOpen(false);
-  },[user,user?.emailVerified]);
   useEffect(()=>onSnapshot(doc(firebase.db,'organizations',ORGANIZATION_ID),snapshot=>{
     if(snapshot.exists())setOrganization(snapshot.data() as Organization);
   },e=>setError(e.message)),[firebase]);
@@ -228,9 +262,9 @@ export function App({ firebase }: { firebase: Firebase }) {
     try { navigate(await createRoom(firebase.db,user,value.trim().slice(0,120)));setDialog(null); }
     catch(e){setError(readable(e));}finally{setBusy(false);}
   }
-  if(authOpen && (!user || !user.emailVerified)) return <>
-    <Button variant="ghost" className="fixed top-5 left-5 z-10" onClick={()=>setAuthOpen(false)}>← Back to {organization.name}</Button>
-    {user ? <VerifyEmail firebase={firebase} user={user} onVerified={()=>{setVerificationTick(n=>n+1);setAuthOpen(false);}}/> : <SignIn firebase={firebase}/>}
+  if(authOpen) return <>
+    <Button variant="ghost" className="fixed top-5 left-5 z-10" disabled={authBusy} onClick={()=>setAuthOpen(false)}>← Back to {organization.name}</Button>
+    {user && !user.emailVerified && !authBusy ? <VerifyEmail firebase={firebase} user={user} onVerified={()=>{setVerificationTick(n=>n+1);setAuthOpen(false);}}/> : <SignIn firebase={firebase} onBusyChange={setAuthBusy} onAuthenticated={signedIn=>{setUser(signedIn);if(signedIn.emailVerified)setAuthOpen(false);}}/>}
   </>;
 
   return <div className="app">
@@ -242,11 +276,11 @@ export function App({ firebase }: { firebase: Firebase }) {
         <nav className="room-list" aria-label="Planning rooms">{rooms.map(r=><button className={'room-link '+(r.id===roomId?'active':'')} key={r.id} onClick={()=>navigate(r.id)}><MessageSquare size={13}/><span className="truncate">{r.title}</span></button>)}{!rooms.length&&<p className="hint">The demo room is getting ready.</p>}</nav>
       </div>
       <div className="mt-2"><div className="eyebrow">Workspace</div><button className="room-link mt-2" onClick={()=>openDialog('members')}><Users size={13}/> Members <span className="ml-auto text-[10px]">{organization.memberEmails.length}</span></button><a className="room-link" href="https://github.com/Jorya-Design/CoCo" target="_blank" rel="noreferrer"><GitBranch size={13}/> Source & documentation</a></div>
-      <div className="sidebar-bottom"><div className="person"><span className="avatar">{user?initials(user.displayName||user.email||'You'):'G'}</span><div className="min-w-0"><strong className="font-medium block truncate">{user?.displayName||user?.email?.split('@')[0]||'Guest'}</strong><span className="text-[9px] text-muted-foreground">{canEdit?'CoCo Co member':'Read-only visitor'}</span></div>{user?<button className="ml-auto" aria-label="Sign out" onClick={()=>void signOut(firebase.auth)}><LogOut size={13}/></button>:<button className="ml-auto text-[10px] text-primary" onClick={()=>setAuthOpen(true)}>Sign in</button>}</div></div>
+      <div className="sidebar-bottom"><div className="person"><span className="avatar">{user?initials(user.displayName||user.email||'You'):'G'}</span><div className="min-w-0"><strong className="font-medium block truncate">{user?.displayName||user?.email?.split('@')[0]||'Guest'}</strong><span className="text-[9px] text-muted-foreground">{canEdit?'CoCo Co member':'Read-only visitor'}</span></div>{user?<button className="ml-auto" aria-label="Sign out" onClick={()=>void signOut(firebase.auth).catch(e=>setError(authErrorMessage(e)))}><LogOut size={13}/></button>:<button className="ml-auto text-[10px] text-primary" onClick={()=>setAuthOpen(true)}>Sign in</button>}</div></div>
     </aside>
     <div className="workspace">
       <header className="topbar"><div className="breadcrumb"><span>{organization.name}</span><span>/</span><strong>{room?.title||'Shared workspace'}</strong></div>
-        <div className="actions"><Button variant="ghost" size="icon-sm" aria-label={theme==='dark'?'Switch to light mode':'Switch to dark mode'} onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?<Sun size={15}/>:<Moon size={15}/>}</Button><Badge variant="secondary" className="text-[9px]">Public demo</Badge>{!canEdit&&<Badge variant="outline" className="text-[9px]">Read only</Badge>}<Button variant="outline" size="sm" onClick={()=>openDialog('members')}><Users size={12}/> Members</Button>{!user&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Sign in</Button>}{user&&!user.emailVerified&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Verify email</Button>}</div>
+        <div className="actions"><Button variant="ghost" size="icon-sm" aria-label={theme==='dark'?'Switch to light mode':'Switch to dark mode'} onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?<Sun size={15}/>:<Moon size={15}/>}</Button><Badge variant="secondary" className="text-[9px]">Public demo</Badge>{!canEdit&&<Badge variant="outline" className="text-[9px]">Read only</Badge>}<Button variant="outline" size="sm" onClick={()=>openDialog('members')}><Users size={12}/> Members</Button>{!user&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Sign in</Button>}{user&&!user.emailVerified&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Verify email</Button>}{user&&<Button className="mobile-sign-out" variant="ghost" size="icon-sm" aria-label="Sign out" onClick={()=>void signOut(firebase.auth).catch(e=>setError(authErrorMessage(e)))}><LogOut size={14}/></Button>}</div>
       </header>
       {room?<><nav className="view-tabs" aria-label="Room views"><button aria-current={view==='plan'?'page':undefined} className={'view-tab '+(view==='plan'?'selected':'')} onClick={()=>setView('plan')}><FileText size={13}/> Plan & conversation</button><button aria-current={view==='control'?'page':undefined} className={'view-tab '+(view==='control'?'selected':'')} onClick={()=>setView('control')}><GitBranch size={13}/> Implementation </button></nav>
         <RoomView key={room.id} firebase={firebase} user={user||null} canEdit={canEdit} organization={organization} room={room} view={view} onSignIn={()=>setAuthOpen(true)}/>

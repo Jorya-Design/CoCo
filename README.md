@@ -31,7 +31,8 @@ npm run dev
 ~~~
 
 Open http://127.0.0.1:5173. The local-only sign-in uses
-suryansh@gmail.com / local-dev-password in the emulator only. Production uses verified email/password sign-in.
+suryansh@gmail.com / local-dev-password in the emulator only. Production uses
+Google sign-in, with verified email/password accounts as a fallback.
 Emulator data is disposable and separate from the real Firebase project.
 
 ## Validation
@@ -43,7 +44,8 @@ npm run test:rules
 npm run build
 ~~~
 
-Rules tests use the demo-coco project ID and verify public read-only browsing,
+Auth and rules tests reset disposable local Auth/Firestore data in demo-coco.
+They verify Google account identity/linking, public read-only browsing,
 the two-member editing boundary, atomic CRDT seeding, append-only updates,
 author identity, size limits, immutable approvals, and server-only execution writes.
 
@@ -91,9 +93,10 @@ The org's two members are provisioned by an authorized operator with
 npm run seed:organization. This idempotent command creates the org and demo room
 without overwriting an existing plan. It uses the operator's existing gcloud login.
 
-The Google provider is enabled with joryatm@gmail.com as the saved support contact.
-The public-facing name is CoCo, completing [#2](https://github.com/Jorya-Design/CoCo/issues/2);
-Google sign-in UI and account linking remain in [#3](https://github.com/Jorya-Design/CoCo/issues/3).
+Google sign-in is the primary sign-in action. The Firebase provider uses
+joryatm@gmail.com as its saved support contact and CoCo as its public name.
+Existing password accounts retain their identity when connecting Google;
+see the [auth flow and verification notes](docs/auth-and-access.md).
 
 Start with the [docs index](docs/README.md), including the
 [auth and access inventory](docs/auth-and-access.md) and
