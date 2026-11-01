@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { Bytes, collection, deleteDoc, doc, getDoc, getDocs, query, where, setDoc, updateDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
@@ -135,4 +136,43 @@ test('members can cancel requests but cannot edit, delete, apply, or revive them
     await setDoc(doc(context.firestore(),'rooms','demo','steering','applied'),{...steering('alice'),status:'applied'});
   });
   await assertFails(updateDoc(doc(client('alice'),'rooms','demo','steering','applied'),{status:'cancelled'}));
+});
+
+const interview=(uid:string)=>({questionIndex:0,title:'Who are we building for?',question:'Who is the primary user?',answer:'Small engineering teams',authorUid:uid,authorName:uid,createdAt:serverTimestamp()});
+function answerPair(db:ReturnType<typeof client>,uid:string,id:string,patch:Record<string,unknown>={}) {
+  const entry={...interview(uid),...patch};
+  const batch=writeBatch(db);
+  batch.set(doc(db,'rooms','demo','interviews',id),entry);
+  batch.set(doc(db,'rooms','demo','messages',id),{...message(uid),authorName:entry.authorName,text:entry.answer});
+  return batch.commit();
+}
+test('interview answers and room messages save atomically for both members',async()=>{
+  for(const uid of ['alice','bob']) await assertSucceeds(answerPair(client(uid),uid,uid));
+  await assertSucceeds(getDocs(collection(guest(),'rooms','demo','interviews')));
+  await assertFails(getDocs(collection(guest(),'rooms','unrelated','interviews')));
+  await assertFails(setDoc(doc(client('alice'),'rooms','demo','interviews','orphan'),interview('alice')));
+  await assertSucceeds(setDoc(doc(client('alice'),'rooms','demo','messages','old-message'),message('alice')));
+  await assertFails(setDoc(doc(client('alice'),'rooms','demo','interviews','old-message'),interview('alice')));
+  const db=client('alice'), mismatch=writeBatch(db);
+  mismatch.set(doc(db,'rooms','demo','interviews','mismatch'),interview('alice'));
+  mismatch.set(doc(db,'rooms','demo','messages','mismatch'),message('alice'));
+  await assertFails(mismatch.commit());
+  assert.equal((await getDoc(doc(guest(),'rooms','demo','messages','mismatch'))).exists(),false);
+});
+test('guests, unverified members, and outsiders cannot add interview history',async()=>{
+  await assertFails(answerPair(guest(),'guest','guest'));
+  await assertFails(answerPair(client('eve'),'eve','outsider'));
+  const unverified=env.authenticatedContext('alice',{email:email('alice'),email_verified:false}).firestore();
+  await assertFails(answerPair(unverified,'alice','unverified'));
+  assert.equal((await getDoc(doc(guest(),'rooms','demo','messages','outsider'))).exists(),false);
+});
+test('interview history is attributed, bounded, and immutable',async()=>{
+  const db=client('alice');
+  const invalid=[{questionIndex:-1},{questionIndex:1.5},{title:''},{title:'x'.repeat(201)},{question:''},{question:'x'.repeat(2001)},{answer:' \n\t'},{answer:'x'.repeat(8001)},{authorUid:'bob'},{createdAt:null},{extra:true}];
+  for(let index=0;index<invalid.length;index++) await assertFails(answerPair(db,'alice','invalid-'+index,invalid[index]));
+  await assertSucceeds(answerPair(db,'alice','saved'));
+  const record=doc(db,'rooms','demo','interviews','saved');
+  await assertFails(updateDoc(record,{answer:'Rewritten'}));
+  await assertFails(deleteDoc(record));
+  assert.equal((await getDoc(record)).data()?.answer,'Small engineering teams');
 });

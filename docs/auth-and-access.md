@@ -109,6 +109,7 @@ No new Google Cloud role was granted to either application member.
 | rooms/{id} with orgId=coco-co | Public; list queries filter on orgId | Verified org member creates a room with their UID; members can update its title. |
 | rooms/{id}/updates/{id} | Public for CoCo Co rooms | Member appends an attributed binary update up to 256 KiB. Immutable afterward. getAfter permits atomic room + seed creation. |
 | rooms/{id}/messages/{id} | Public for CoCo Co rooms | Member appends a message up to 8,000 characters under their UID. Immutable afterward. |
+| rooms/{id}/interviews/{id} | Public for CoCo Co rooms | Member appends a bounded, attributed question/answer with a matching new room message in the same batch. Immutable afterward. |
 | rooms/{id}/presence/{sessionId} | Public for CoCo Co rooms | Member creates/updates/deletes their own presence. Another UID cannot take over the record. |
 | rooms/{id}/approvals/{id} | Public for CoCo Co rooms | Member creates an immutable snapshot: plan up to 200,000 characters and 1–100 tasks. |
 | rooms/{id}/runs/{id} | Public for CoCo Co rooms | Denied. Reserved for the trusted control plane. |
