@@ -166,9 +166,18 @@ test('collaborator activity is bounded, member-owned and never accepts draft con
   await assertSucceeds(updateDoc(path,{view:'plan',activity:'typing',taskId:null,seenAt:serverTimestamp()}));
   await assertFails(updateDoc(path,{activity:'executing-shell',seenAt:serverTimestamp()}));
   await assertFails(updateDoc(path,{draft:'private unfinished message',seenAt:serverTimestamp()}));
+  for(const invalid of [{view:'admin'},{active:'online'},{taskId:'x'.repeat(201)},{taskId:42},{name:'x'.repeat(101)}]) {
+    await assertFails(updateDoc(path,{...invalid,seenAt:serverTimestamp()}));
+  }
   await assertFails(setDoc(doc(client('bob'),'rooms/demo/presence/live-session'),{...value,uid:'bob'}));
   await assertFails(setDoc(doc(client('eve'),'rooms/demo/presence/outsider'),{...value,uid:'eve'}));
+  const unverified=env.authenticatedContext('alice',{email:email('alice'),email_verified:false}).firestore();
+  await assertFails(setDoc(doc(unverified,'rooms/demo/presence/unverified'),value));
+  await assertFails(setDoc(doc(guest(),'rooms/demo/presence/anonymous'),value));
+  await assertFails(setDoc(doc(db,'rooms/unrelated/presence/wrong-room'),value));
   await assertSucceeds(getDoc(doc(guest(),'rooms/demo/presence/live-session')));
+  await assertFails(deleteDoc(doc(client('bob'),'rooms/demo/presence/live-session')));
+  await assertSucceeds(deleteDoc(path));
 });
 
 const steering=(uid:string)=>({taskId:'interface',runId:null as string|null,text:'Use accessible controls',timing:'next',status:'queued',authorUid:uid,authorName:uid,createdAt:serverTimestamp()});
