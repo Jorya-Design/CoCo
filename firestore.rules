@@ -99,6 +99,16 @@ service cloud.firestore {
           && request.resource.data.seenAt == request.time;
         allow delete: if orgMember() && publicRoom(roomId) && resource.data.uid == request.auth.uid;
       }
+      match /cursors/{clientId} {
+        allow read: if publicRoom(roomId);
+        allow create, update: if orgMember() && publicRoom(roomId)
+          && request.resource.data.keys().hasOnly(['uid','bytes','seenAt'])
+          && request.resource.data.uid == request.auth.uid
+          && (resource == null || resource.data.uid == request.auth.uid)
+          && request.resource.data.bytes is bytes && request.resource.data.bytes.size() <= 16384
+          && request.resource.data.seenAt == request.time;
+        allow delete: if orgMember() && publicRoom(roomId) && resource.data.uid == request.auth.uid;
+      }
       match /approvals/{approvalId} {
         allow read: if publicRoom(roomId);
         allow create: if orgMember() && publicRoom(roomId)

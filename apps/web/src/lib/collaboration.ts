@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import {
-  Bytes, collection, doc, onSnapshot, serverTimestamp, setDoc,
+  Bytes, collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc,
   type Firestore, type Unsubscribe,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
@@ -10,6 +11,11 @@ export type SyncState = 'connecting' | 'saving' | 'saved' | 'offline' | 'error';
 /** Append-only Yjs updates: Firestore is both the live transport and persistence. */
 export class FirestoreDocument {
   readonly document = new Y.Doc();
+  readonly awareness = new Awareness(this.document);
+  private stopAwareness: Unsubscribe = () => {};
+  private cursorTimer?: ReturnType<typeof setTimeout>;
+  private heartbeat?: ReturnType<typeof setInterval>;
+  private cursorDoc?: ReturnType<typeof doc>;
   private pending: Uint8Array[] = [];
   private timer?: ReturnType<typeof setTimeout>;
   private unsubscribe: Unsubscribe;
@@ -26,6 +32,24 @@ export class FirestoreDocument {
     onRemote: (name: string) => void,
     onReady: () => void,
   ) {
+    if (canEdit && user) {
+      this.cursorDoc = doc(db,'rooms',roomId,'cursors',String(this.document.clientID));
+      const color = user.uid.split('').reduce((sum,char)=>sum+char.charCodeAt(0),0)%2 ? '#9bbde0' : '#d4b693';
+      this.awareness.setLocalStateField('user',{name:user.displayName||'Teammate',color,colorLight:color+'33'});
+      this.awareness.on('update',this.onAwareness);
+      this.heartbeat=setInterval(()=>this.publishAwareness(),15000);
+      this.publishAwareness();
+    } else this.awareness.setLocalState(null);
+    this.stopAwareness=onSnapshot(collection(db,'rooms',roomId,'cursors'),snapshot=>{
+      for(const change of snapshot.docChanges()) {
+        if(change.doc.id===String(this.document.clientID))continue;
+        const value=change.doc.data();
+        if(change.type==='removed'||(value.seenAt?.toMillis()??0)<Date.now()-30000) {
+          removeAwarenessStates(this.awareness,[Number(change.doc.id)],'remote');continue;
+        }
+        if(value.bytes instanceof Bytes)applyAwarenessUpdate(this.awareness,value.bytes.toUint8Array(),'remote');
+      }
+    },error=>this.onState('error',error.message));
     let initialized = false;
     this.unsubscribe = onSnapshot(collection(db, 'rooms', roomId, 'updates'), { includeMetadataChanges: true }, snapshot => {
       for (const change of snapshot.docChanges()) {
@@ -39,6 +63,15 @@ export class FirestoreDocument {
     }, error => { this.lastError = error.message; onState('error', error.message); });
     this.document.on('update', this.onUpdate);
     window.addEventListener('online', this.online);
+  }
+  private onAwareness = (_event: unknown, origin: unknown) => {
+    if(origin==='remote'||this.disposed)return;
+    clearTimeout(this.cursorTimer);
+    this.cursorTimer=setTimeout(()=>this.publishAwareness(),100);
+  };
+  private publishAwareness() {
+    if(!this.cursorDoc||!this.user||this.disposed)return;
+    void setDoc(this.cursorDoc,{uid:this.user.uid,bytes:Bytes.fromUint8Array(encodeAwarenessUpdate(this.awareness,[this.document.clientID])),seenAt:serverTimestamp()}).catch(error=>this.onState('error',error.message));
   }
   private onUpdate = (update: Uint8Array, origin: unknown) => {
     if (origin === 'remote' || !this.canEdit || !this.user) return;
@@ -69,6 +102,9 @@ export class FirestoreDocument {
   hasUnsavedChanges() { return this.pending.length > 0 || this.writing > 0; }
   destroy() {
     this.disposed = true;
+    clearTimeout(this.cursorTimer);clearInterval(this.heartbeat);
+    this.awareness.off('update',this.onAwareness);this.stopAwareness();this.awareness.destroy();
+    if(this.cursorDoc)void deleteDoc(this.cursorDoc).catch(()=>{});
     void this.flush();
     this.unsubscribe();
     window.removeEventListener('online', this.online);

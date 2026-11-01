@@ -201,3 +201,14 @@ test('interview history is attributed, bounded, and immutable',async()=>{
   await assertFails(deleteDoc(record));
   assert.equal((await getDoc(record)).data()?.answer,'Small engineering teams');
 });
+
+test('live cursors are member-owned, bounded, and publicly readable',async()=>{
+  const db=client('alice'), ref=doc(db,'rooms','demo','cursors','123');
+  const cursor={uid:'alice',bytes:Bytes.fromUint8Array(new Uint8Array([1,2])),seenAt:serverTimestamp()};
+  await assertSucceeds(setDoc(ref,cursor));
+  await assertSucceeds(getDoc(doc(guest(),'rooms','demo','cursors','123')));
+  await assertFails(setDoc(doc(client('bob'),'rooms','demo','cursors','123'),{...cursor,uid:'bob'}));
+  await assertFails(setDoc(doc(guest(),'rooms','demo','cursors','guest'),cursor));
+  await assertFails(setDoc(doc(db,'rooms','demo','cursors','huge'),{...cursor,bytes:Bytes.fromUint8Array(new Uint8Array(16385))}));
+  await assertSucceeds(deleteDoc(ref));
+});

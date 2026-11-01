@@ -1,8 +1,8 @@
+import { CollaborativePlan } from '@/components/collaborative-plan';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile, type OAuthCredential, type User } from 'firebase/auth';
 import type { FirebaseError } from 'firebase/app';
 import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
-import * as Y from 'yjs';
 import { ArrowRight, Check, CheckCheck, CircleHelp, FileText, GitBranch, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Pencil, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -127,10 +127,8 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [health, setHealth] = useState<RuntimeHealth | null>(null);
   const [clock, setClock] = useState(Date.now());
-  const editor = useRef<HTMLTextAreaElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
-  const cursor = useRef<{start:Y.RelativePosition;end:Y.RelativePosition} | null>(null);
   const historyRef = useRef<SavedInterviewAnswer[]>([]);
   const draft = interviewOpen ? interviewDraft : chatDraft;
   const setDraft = interviewOpen ? setInterviewDraft : setChatDraft;
@@ -167,14 +165,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
       name=>{ setRemoteName(name); clearTimeout(remoteTimer); remoteTimer=setTimeout(()=>setRemoteName(''),1600); },
       ()=>setReady(true));
     const update = () => { setPlan(p.document.getText('plan').toString()); setTasks(p.document.getArray<TaskSpec>('tasks').toArray()); };
-    const restoreSelection = () => {
-      if (!cursor.current || document.activeElement !== editor.current) return;
-      const start = Y.createAbsolutePositionFromRelativePosition(cursor.current.start, p.document);
-      const end = Y.createAbsolutePositionFromRelativePosition(cursor.current.end, p.document);
-      requestAnimationFrame(()=>editor.current?.setSelectionRange(start?.index || 0, end?.index || 0));
-    };
     p.document.on('update', update);
-    p.document.on('afterTransaction', restoreSelection);
     setProvider(p);
     const beforeUnload = (event: BeforeUnloadEvent) => { if (p.hasUnsavedChanges()) { event.preventDefault(); event.returnValue=''; } };
     window.addEventListener('beforeunload', beforeUnload);
@@ -202,11 +193,6 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   }, [firebase, room.id, user, canEdit]);
   useEffect(()=>{chatEnd.current?.scrollIntoView({block:'nearest',behavior:'smooth'});},[messages]);
 
-  function captureCursor() {
-    if (!provider || !editor.current) return;
-    const text = provider.document.getText('plan');
-    cursor.current = { start: Y.createRelativePositionFromTypeIndex(text,editor.current.selectionStart), end: Y.createRelativePositionFromTypeIndex(text,editor.current.selectionEnd) };
-  }
   function startInterview() {
     if(!canEdit||!ready||!historyReady||busy)return;
     if(!interview)setInterview(getInterviewPrompt(nextInterviewIndex(historyRef.current),historyRef.current));
@@ -270,7 +256,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
       <section className="plan-panel"><div className="panel-heading"><h2><FileText size={14}/> Shared plan</h2><Badge variant="secondary" className="text-[9px] font-normal">{unchanged?'Approved snapshot':'Working draft'}</Badge></div>
         <div className={'paper '+(remoteName?'remote-edit':'')}>
           <div className="paper-toolbar"><span><FileText size={11} className="inline mr-1"/> plan.md</span><div className="paper-actions">{remoteName?<span className="text-foreground">{remoteName} is editing</span>:syncDetail}{canEdit&&<Button variant="ghost" size="sm" disabled={!ready} aria-pressed={editingPlan} onClick={()=>setEditingPlan(!editingPlan)}>{editingPlan?<Check size={12}/>:<Pencil size={12}/>} {editingPlan?'Done editing':'Edit plan'}</Button>}</div></div>
-          {editingPlan&&canEdit ? <textarea ref={editor} aria-label="Edit shared plan" className="plan-editor" value={plan} disabled={!ready} maxLength={120000} spellCheck={false} onSelect={captureCursor} onChange={e=>{if(provider){cursor.current=null;replaceText(provider.document.getText('plan'),e.target.value);captureCursor();}}}/> : <article aria-label="Shared plan" className="plan-rendered markdown-content">{ready?<Markdown>{plan}</Markdown>:<p className="loading">Loading the plan…</p>}</article>}
+          {editingPlan&&canEdit&&provider ? <CollaborativePlan provider={provider}/> : <article aria-label="Shared plan" className="plan-rendered markdown-content">{ready?<Markdown>{plan}</Markdown>:<p className="loading">Loading the plan…</p>}</article>}
           <InterviewHistory history={history} loading={!historyReady} canContinue={canEdit&&ready&&historyReady&&!busy&&!interviewOpen} onContinue={startInterview}/>
           <div className="plan-footer"><span><Users size={10} className="inline mr-1"/> {organization.memberEmails.length} teammates · editing together</span><span>{wordCount} words{historyPending?' · Saving interview…':''}</span></div>
         </div>
