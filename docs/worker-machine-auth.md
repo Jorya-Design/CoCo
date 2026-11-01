@@ -82,6 +82,8 @@ deploy the new worker token, verify reconnect, then remove the old hash. Registr
 updates must use an atomic rename. Disable a worker or remove all its hashes to
 revoke it, including existing connections. Keep revoked entries out of future
 GitHub deployments so a redeploy cannot accidentally restore access.
+Deployments restart the supervisor and stop active containers. An interrupted
+attempt fails when its lease expires; start a new run explicitly after deployment.
 
 ## Running approved work
 

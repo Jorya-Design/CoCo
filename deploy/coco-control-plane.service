@@ -1,6 +1,6 @@
 [Unit]
 Description=CoCo worker authentication gateway
-After=network-online.target
+After=network-online.target docker.service coco-executor-firewall.service
 Wants=network-online.target
 Requires=docker.service coco-executor-firewall.service
 [Service]
