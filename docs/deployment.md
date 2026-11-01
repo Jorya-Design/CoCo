@@ -21,8 +21,8 @@ pushes to main, and manual dispatch.
 
 1. Install exactly the locked dependencies.
 2. Typecheck shared/server reference code and the React app.
-3. Run the four CRDT/DAG unit tests.
-4. Start an isolated Firestore emulator and run seven authorization tests.
+3. Run the CRDT/DAG unit tests.
+4. Start an isolated Firestore emulator and run the authorization tests.
 5. Build the production app and upload the resulting artifact.
 6. On main, authenticate through Google Workload Identity Federation.
 7. Download that same artifact and deploy Hosting, Firestore rules, and indexes.
@@ -44,12 +44,17 @@ trust documented in [auth and access](auth-and-access.md).
 The current deployment has:
 
 - A registered Firebase web app named CoCo.
-- Email/password Authentication enabled; verification is required by app rules.
+- Email/password Authentication enabled; verified org membership is required for editing.
 - The default Firestore database in europe-west2.
-- Firebase Hosting and deployed room-membership rules.
+- Firebase Hosting and public-read/member-write organization rules.
+- CoCo Co, two editing members, and its public demo room.
 - The GitHub deployment identity from scripts/setup-deploy.sh.
 
-Google sign-in awaits the requested support-email configuration. Linux execution
+The one-time data bootstrap is npm run seed:organization, run with an authorized
+operator's existing gcloud login. It creates missing records without replacing
+room content. Routine CI deployments do not reseed application data.
+
+Google sign-in is tracked in #3 after the support-email ticket #2. Linux execution
 is a later service; no deployed page claims that a Codex run has completed.
 
 ## Release and rollback

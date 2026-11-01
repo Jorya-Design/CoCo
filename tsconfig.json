@@ -4,5 +4,5 @@
     "strict": true, "esModuleInterop": true, "skipLibCheck": true,
     "allowImportingTsExtensions": true, "noEmit": true, "types": ["node"]
   },
-  "include": ["server", "shared", "worker", "tests"]
+  "include": ["server", "shared", "worker", "tests", "scripts/*.ts"]
 }

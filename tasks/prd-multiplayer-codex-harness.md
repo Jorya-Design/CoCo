@@ -4,7 +4,9 @@ Status: initial Firebase foundation, 1 November 2026.
 
 ## Product and agreed scope
 
-A small trusted team uses one repository and one Linux host. They discuss an
+A small trusted team in CoCo Co uses one repository and one Linux host. The
+hackathon org is publicly viewable; jhosephchi@gmail.com and suryansh@gmail.com
+are its two editing members. They discuss an
 idea, edit a shared plan, approve a fixed plan revision, execute a dependency
 graph of Codex coding tasks, then review the integrated result.
 
@@ -18,7 +20,7 @@ the public interactions on [Affect UI](https://www.affectui.com/).
 
 - Two authenticated teammates can edit a plan simultaneously and see chat live.
 - Refreshing or reconnecting restores the shared document.
-- A room owner can share access by a teammate's verified email address.
+- Visitors browse CoCo Co read-only; only its two verified members can edit.
 - Approving creates an immutable copy of the plan and task DAG.
 - Merging to main runs checks and deploys Hosting plus Firestore rules/indexes.
 - Codex execution becomes the next vertical slice, with real status and artifacts.
@@ -26,10 +28,11 @@ the public interactions on [Affect UI](https://www.affectui.com/).
 ## User stories and acceptance
 
 ### US-001: Authenticate and share a room
-As a teammate, I want to sign in and open only rooms shared with my email.
+As a visitor, I want to browse the public demo; as a member, I want to sign in and edit.
 - [ ] Verified email sign-in works on the production domain; add Google once its support contact is configured.
-- [ ] Owners create rooms and add verified teammates by email.
-- [ ] Nonmembers cannot read or write room data; rules tests prove it.
+- [ ] Both verified org members can create and edit CoCo Co rooms.
+- [ ] Visitors can read the org; anonymous users and nonmembers cannot write.
+- [ ] Org membership is administered outside the browser and cannot be self-granted.
 - [ ] Typecheck passes.
 - [ ] Verify in browser using dev-browser skill, or available browser automation.
 
@@ -72,7 +75,7 @@ As an operator, I want independent tasks to run concurrently and produce one rev
 
 ## Functional requirements
 
-FR-1. Authorize every Firestore path by verified identity and room membership.
+FR-1. Allow public reads for CoCo Co rooms, and require verified org membership for browser writes.
 FR-2. Store CRDT updates as append-only binary records with bounded size.
 FR-3. Use a single atomic seed when creating a room; joining clients never reseed.
 FR-4. Coalesce edits before persistence, synchronize updates idempotently, and
@@ -177,9 +180,11 @@ browser automation platform, and fabricated Codex execution.
 
 ## Success criteria and next decisions
 
-The first milestone is successful when two invited users can create a room,
-chat and edit concurrently, approve a fixed snapshot, refresh without losing
-saved work, and see a subsequent main-branch merge deploy automatically.
+The first milestone is successful when the two org members can create a room,
+chat and edit concurrently, approve a fixed snapshot, and refresh without losing
+saved work, while guests can browse read-only. A subsequent main-branch merge
+must deploy automatically. Google sign-in follows support-contact ticket #2 in
+ticket #3; verified email sign-in is the current prototype authentication.
 
 Before the execution milestone, decide the Linux host/repository path, inference
 authentication and budget, sandbox/network policy, task concurrency, and the

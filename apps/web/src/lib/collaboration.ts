@@ -20,7 +20,8 @@ export class FirestoreDocument {
   constructor(
     private db: Firestore,
     private roomId: string,
-    private user: User,
+    private user: User | null,
+    private canEdit: boolean,
     private onState: (state: SyncState, error?: string) => void,
     onRemote: (name: string) => void,
     onReady: () => void,
@@ -31,7 +32,7 @@ export class FirestoreDocument {
         if (change.type !== 'added') continue;
         const data = change.doc.data();
         Y.applyUpdate(this.document, (data.bytes as Bytes).toUint8Array(), 'remote');
-        if (initialized && data.authorUid !== user.uid) onRemote(data.authorName);
+        if (initialized && data.authorUid !== user?.uid) onRemote(data.authorName);
       }
       if (!initialized && !snapshot.empty) { initialized = true; onReady(); }
       if (!this.writing && !this.pending.length && !this.lastError) onState(snapshot.metadata.fromCache ? 'offline' : 'saved');
@@ -40,7 +41,7 @@ export class FirestoreDocument {
     window.addEventListener('online', this.online);
   }
   private onUpdate = (update: Uint8Array, origin: unknown) => {
-    if (origin === 'remote') return;
+    if (origin === 'remote' || !this.canEdit || !this.user) return;
     this.pending.push(update);
     this.onState('saving');
     clearTimeout(this.timer);
@@ -48,7 +49,7 @@ export class FirestoreDocument {
   };
   async flush() {
     clearTimeout(this.timer);
-    if (!this.pending.length) return;
+    if (!this.pending.length || !this.canEdit || !this.user) return;
     const updates = this.pending.splice(0);
     const bytes = Y.mergeUpdates(updates);
     this.writing++;

@@ -7,8 +7,9 @@ A multiplayer planning workspace for a Codex worker harness.
 React + TypeScript + shadcn/ui, Firebase Hosting and Authentication, and Yjs
 documents persisted and synchronized through Cloud Firestore.
 
-The first slice includes verified email sign-in, private rooms shared by email, live
-chat, collaborative plan editing, a DAG preview, and immutable plan approvals.
+The first slice is **CoCo Co**, a public read-only hackathon workspace. Its two
+verified members, jhosephchi@gmail.com and suryansh@gmail.com, can edit shared
+plans, chat, create rooms, and approve immutable DAG snapshots.
 The Linux Codex scheduler and coding workers are the next milestone. The UI
 does not simulate successful execution.
 
@@ -30,7 +31,7 @@ npm run dev
 ~~~
 
 Open http://127.0.0.1:5173. The local-only sign-in uses
-teammate@example.com / local-dev-password. Production uses verified email/password sign-in.
+suryansh@gmail.com / local-dev-password in the emulator only. Production uses verified email/password sign-in.
 Emulator data is disposable and separate from the real Firebase project.
 
 ## Validation
@@ -42,9 +43,9 @@ npm run test:rules
 npm run build
 ~~~
 
-Rules tests use the demo-coco project ID and verify membership isolation,
-atomic CRDT seeding, append-only updates, author identity, size limits,
-owner-only sharing, immutable approvals, and server-only execution writes.
+Rules tests use the demo-coco project ID and verify public read-only browsing,
+the two-member editing boundary, atomic CRDT seeding, append-only updates,
+author identity, size limits, immutable approvals, and server-only execution writes.
 
 ## Continuous deployment
 
@@ -69,7 +70,8 @@ Never add inference keys or administrative credentials to the browser app.
 
 ## Data model
 
-- rooms: title, owner UID, and member email list.
+- organizations/coco-co: display name and the administratively managed member list.
+- rooms: title, creator UID, and org ID. CoCo Co rooms are publicly viewable.
 - rooms/{id}/updates: immutable binary Yjs updates, batched over 300 ms.
 - rooms/{id}/messages: immutable room messages.
 - rooms/{id}/presence: session heartbeats; clients ignore stale entries.
@@ -83,10 +85,12 @@ atomic batch, so collaborators never initialize competing plan copies.
 
 This foundation replays the room's update log. Add snapshot compaction before
 long-lived or larger rooms; current payload limits bound individual writes.
-Sharing adds an email to room membership and does not send an invitation email.
-Google sign-in is pending: the requested public support contact is
-joryatm@gmail.com, which Firebase does not currently offer as a verified support
-address for the signed-in project administrator.
+The org's two members are provisioned by an authorized operator with
+npm run seed:organization. This idempotent command creates the org and demo room
+without overwriting an existing plan. It uses the operator's existing gcloud login.
+
+Google sign-in is a follow-up: [support contact #2](https://github.com/Jorya-Design/CoCo/issues/2)
+comes before [Google sign-in #3](https://github.com/Jorya-Design/CoCo/issues/3).
 
 Start with the [docs index](docs/README.md), including the
 [auth and access inventory](docs/auth-and-access.md) and

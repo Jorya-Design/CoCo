@@ -1,28 +1,47 @@
 # Auth, identities, and access grants
 
 Inventory verified on 1 November 2026 against project IAM, the workload identity
-provider, its service-account policy, and the Firebase Authentication console.
+provider, its service-account policy, and Firebase Authentication configuration.
 
 Project: coco-3471c (375045542679). Production:
 https://coco-3471c.web.app. Firestore: (default), europe-west2.
 
+## CoCo Co and its members
+
+The prototype has one public organization, CoCo Co (organizations/coco-co).
+Its editing members are:
+
+- jhosephchi@gmail.com
+- suryansh@gmail.com
+
+The organization document is maintained administratively. Browser clients cannot
+change its name or member list. The seed script creates it and its first room
+once, and preserves existing room content on later runs.
+
+Public read access applies to rooms with orgId=coco-co and their plan updates,
+chat, presence, approvals, and run records. The UI marks this workspace as a
+public demo. Unrelated orgs and room paths have no public grant.
+
 ## Application authentication
 
-Production uses Firebase Authentication email/password accounts with email
-verification, password reset, and Firebase-managed client sessions.
+Production currently uses Firebase Authentication email/password accounts with
+email verification, password reset, and Firebase-managed client sessions.
 
-1. A user registers or signs in using the Firebase web SDK.
-2. A new account receives a verification link. The app shows the verification
-   screen until the account's email is verified.
-3. On confirmation, the app reloads the user and refreshes the ID token.
-4. Firestore rules require an authenticated token with email_verified=true.
-5. Room access requires the token's email to appear in that room's memberEmails.
+1. Visitors can browse CoCo Co without signing in.
+2. A member signs in using the Firebase web SDK.
+3. A new account verifies its email before it can edit.
+4. The app reloads the user and refreshes the ID token after verification.
+5. Firestore rules require email_verified=true and a lowercased email claim
+   matching one of the organization's two member emails before allowing writes.
 
-Registration is self-service. A verified account can create its own room.
-Creating an account grants no access to another team's rooms.
-Google sign-in is currently disabled: the requested public support email is
-joryatm@gmail.com, and it is not offered as a support contact for the current
-console login. Add that provider after the support contact is configured.
+Registration is self-service, but creating or verifying another account grants
+no editing access. A signed-in nonmember remains a read-only visitor.
+
+Google sign-in is deferred at the user's request. Follow-ups must be completed
+in this order:
+
+1. [#2: Configure joryatm@gmail.com as the Google support contact](https://github.com/Jorya-Design/CoCo/issues/2).
+2. [#3: Add Google sign-in for the CoCo Co members](https://github.com/Jorya-Design/CoCo/issues/3), dependent on #2.
 
 The public Firebase SDK configuration is loaded from Hosting's
 /__/firebase/init.json endpoint. Its API key identifies the app; Firestore rules
@@ -30,52 +49,47 @@ enforce access. No Google administrative credentials or OpenAI inference keys
 are sent to the browser.
 
 Implementation: [Firebase initialization](../apps/web/src/lib/firebase.ts),
-[sign-in and verification screens](../apps/web/src/App.tsx),
-[Firestore rules](../firestore.rules).
+[auth and org UI](../apps/web/src/App.tsx),
+[Firestore rules](../firestore.rules), and
+[organization bootstrap](../scripts/seed-organization.ts).
 
 ## Application user grants
 
-Room access is based on ownerUid and memberEmails. There is no global app-admin
-role or custom-claims role system in this release.
-
 | Principal | Grants |
 | --- | --- |
-| Signed-out visitor | Load the public app shell; no room data access. |
-| Unverified account | Verify email, reset password, sign out; no room data access. |
-| Verified nonmember | Create a private room; query rooms containing their own email. No access to other rooms. |
-| Room collaborator | Read room metadata, Yjs updates, chat, presence, approvals, and run records; append authored CRDT updates and chat; maintain their own presence; create an immutable approval. |
-| Room owner | All collaborator grants; update the room title and member email list, retaining their own membership. |
-| Browser user, including a room owner | No execution-record writes. No mutation/deletion of saved CRDT updates, chat messages, or approvals. |
+| Signed-out visitor | Read CoCo Co's organization, rooms, shared plan, chat, presence, DAG snapshots, and execution records. No writes or presence heartbeat. |
+| Unverified account | The same public read access; verification, password reset, and sign-out. No writes. |
+| Verified nonmember | The same public read access. Cannot create rooms, edit plans, send chat, approve work, or change membership. |
+| Either verified CoCo Co member | Create org rooms, edit shared plans, append chat, maintain their own presence, update room titles, and create immutable approval snapshots. |
+| Any browser user, including both members | No organization/membership writes, room org changes, execution-record writes, or mutation/deletion of saved CRDT updates, chat messages, or approvals. |
+| Authorized project administrator | Maintain the org membership document through Google Cloud/Firebase administrative access. This is a separate IAM grant. |
 
-An owner shares a room by adding a teammate's email. The teammate signs in and
-verifies that address; the room appears in their list. Sharing sends no email.
-The UI adds members. Removing membership currently uses an owner-authorized
-Firestore update or an administrator's console tools.
-
-Room deletion is not exposed or granted. User profile display names are labels;
-the rules check authorUid against the authenticated UID.
+ownerUid records who created a room; editing authority comes from the org's
+member list. App membership does not grant Google Cloud project IAM access.
+No new Google Cloud role was granted to either application member.
 
 ### Firestore path policy
 
-| Path under rooms/{roomId} | Read | Write |
+| Path | Read | Browser write |
 | --- | --- | --- |
-| Room document | Verified members | Verified creator creates a room for themselves; owner updates title/membership only. |
-| updates/{id} | Verified members | Member creates an authored binary update up to 256 KiB. Immutable afterward. getAfter permits atomic room + seed creation. |
-| messages/{id} | Verified members | Member appends a message up to 8,000 characters under their UID. Immutable afterward. |
-| presence/{sessionId} | Verified members | Member creates/updates/deletes their own presence; another UID cannot take over that record. |
-| approvals/{id} | Verified members | Member creates an immutable approved snapshot: plan up to 200,000 characters and 1–100 tasks. |
-| runs/{id} | Verified members | Browser writes denied. Reserved for the future trusted control plane. |
+| organizations/coco-co | Public | Denied; administrative provisioning only. |
+| rooms/{id} with orgId=coco-co | Public; list queries filter on orgId | Verified org member creates a room with their UID; members can update its title. |
+| rooms/{id}/updates/{id} | Public for CoCo Co rooms | Member appends an attributed binary update up to 256 KiB. Immutable afterward. getAfter permits atomic room + seed creation. |
+| rooms/{id}/messages/{id} | Public for CoCo Co rooms | Member appends a message up to 8,000 characters under their UID. Immutable afterward. |
+| rooms/{id}/presence/{sessionId} | Public for CoCo Co rooms | Member creates/updates/deletes their own presence. Another UID cannot take over the record. |
+| rooms/{id}/approvals/{id} | Public for CoCo Co rooms | Member creates an immutable snapshot: plan up to 200,000 characters and 1–100 tasks. |
+| rooms/{id}/runs/{id} | Public for CoCo Co rooms | Denied. Reserved for the trusted control plane. |
 | All other paths | Denied | Denied |
 
 Create timestamps must equal the server request time. Schemas reject extra
-fields on append-only records. The rules do not parse Yjs or validate the
-semantics of every task in an approval; the client validates the DAG, and the
-future control plane must independently validate the whole execution contract.
+fields on append-only records. Rules do not parse Yjs or validate every task's
+semantics. The client validates the DAG, and the future control plane must
+independently validate an approval before executing it.
 
-Membership changes affect subsequent authorized requests. Previously downloaded
-content and local offline copies cannot be recalled. Disabling an Auth account
+Membership is evaluated on authorized requests. Disabling an Auth account
 prevents future sign-in/refresh; existing ID tokens are not an instant revocation
-mechanism. Remove room membership when removing room access.
+mechanism. Remove the member email administratively to revoke editing access.
+Public read access remains available to everyone.
 
 ## GitHub Actions deployment identity
 
@@ -158,7 +172,7 @@ inheritance, every other service-account policy, or pre-existing credential keys
 
 The auth and Firestore emulators use demo-coco and loopback endpoints.
 scripts/seed-emulators.mjs creates a disposable verified local account:
-teammate@example.com / local-dev-password. It has no production identity or
+suryansh@gmail.com / local-dev-password. It has no production identity or
 project IAM grant. Emulator owner tokens are local test fixtures.
 
 The existing operator's Firebase CLI and gcloud sessions were used for initial
@@ -191,7 +205,7 @@ To stop CI impersonation, disable the github workload identity provider or remov
 its service-account workloadIdentityUser binding. Existing short-lived
 credentials can remain valid until they expire. Remove the deployer's project
 roles when retiring the integration. Review rules and IAM changes independently
-from room invitations, and update this inventory when grants change.
+from application org membership, and update this inventory when grants change.
 
 Authorization regression coverage:
 [Firestore emulator tests](../tests/firestore.rules.test.ts).

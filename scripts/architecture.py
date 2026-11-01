@@ -56,7 +56,7 @@ def arrow(x1,y1,x2,y2,label=None,lx=None,ly=None):
 text(40,30,"CoCo · multiplayer Codex harness",38,purple)
 text(40,90,"Plan together → approve a snapshot → execute a DAG → review the diff",21)
 text(40,145,"FIREBASE FOUNDATION · INITIAL RELEASE",17,"#9a8aa5")
-box(40,200,250,120,"Teammates","Verified sign-in\nInvite by email",fill="#f6f3fa")
+box(40,200,250,120,"Guests + members","Public read-only\n2 verified editors",fill="#f6f3fa")
 box(380,200,400,120,"React + shadcn/ui","Chat + CRDT plan + task DAG\nServed by Firebase Hosting",fill="#eee8f7")
 box(870,200,290,120,"GitHub Actions","PR: test + build\nMain: deploy checked build",fill="#f6f3fa")
 arrow(300,260,370,260)
