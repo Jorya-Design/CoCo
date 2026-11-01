@@ -76,6 +76,8 @@ Never add inference keys or administrative credentials to the browser app.
 - rooms: title, creator UID, and org ID. CoCo Co rooms are publicly viewable.
 - rooms/{id}/updates: immutable binary Yjs updates, batched over 300 ms.
 - rooms/{id}/messages: immutable room messages.
+- rooms/{id}/interviews: immutable question/answer history, paired atomically
+  with room messages and rendered beneath the plan.
 - rooms/{id}/presence: session heartbeats; clients ignore stale entries.
 - rooms/{id}/approvals: immutable plan text and task DAG snapshots.
 - rooms/{id}/runs: reserved for the server-owned worker control plane.

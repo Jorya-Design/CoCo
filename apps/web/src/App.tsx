@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile, type OAuthCredential, type User } from 'firebase/auth';
 import type { FirebaseError } from 'firebase/app';
 import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import * as Y from 'yjs';
-import { ArrowRight, Check, CheckCheck, CircleHelp, FileText, GitBranch, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
+import { ArrowRight, Check, CheckCheck, CircleHelp, FileText, GitBranch, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Pencil, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -15,8 +15,12 @@ import { ExecutionGraph } from '@/components/execution-graph';
 import { TaskInspector } from '@/components/task-inspector';
 import type { SteeringNote } from '@/lib/steering';
 import { authErrorMessage, conflictingEmail } from '@/lib/auth';
+import { Markdown } from '@/components/markdown';
+import { InterviewHistory } from '@/components/interview-history';
+import { sendInterviewAnswer, type SavedInterviewAnswer } from '@/lib/interview';
 import { replaceText } from '../../../shared/crdt.ts';
-import { interviewQuestions, validateDag } from '../../../shared/plan.ts';
+import { validateDag } from '../../../shared/plan.ts';
+import { getInterviewPrompt, nextInterviewIndex, planWithInterview, type InterviewPrompt } from '../../../shared/interview.ts';
 import type { Run, TaskSpec } from '../../../shared/types.ts';
 import { ORGANIZATION_ID, ORGANIZATION_NAME, ORGANIZATION_MEMBERS, type Organization } from '../../../shared/organization.ts';
 
@@ -102,10 +106,16 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   const [sync, setSync] = useState<SyncState>('connecting');
   const [ready, setReady] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState('');
+  const [chatDraft, setChatDraft] = useState('');
+  const [interviewDraft, setInterviewDraft] = useState('');
   const [error, setError] = useState('');
   const [remoteName, setRemoteName] = useState('');
-  const [interview, setInterview] = useState<number | null>(null);
+  const [interview, setInterview] = useState<InterviewPrompt | null>(null);
+  const [interviewOpen, setInterviewOpen] = useState(false);
+  const [history, setHistory] = useState<SavedInterviewAnswer[]>([]);
+  const [historyReady, setHistoryReady] = useState(false);
+  const [historyPending, setHistoryPending] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(false);
   const [approval, setApproval] = useState<{ plan: string; tasks: TaskSpec[]; createdAt: {toDate:()=>Date} | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [people, setPeople] = useState<string[]>([]);
@@ -114,11 +124,18 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   const [steering, setSteering] = useState<SteeringNote[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
   const cursor = useRef<{start:Y.RelativePosition;end:Y.RelativePosition} | null>(null);
+  const historyRef = useRef<SavedInterviewAnswer[]>([]);
+  const draft = interviewOpen ? interviewDraft : chatDraft;
+  const setDraft = interviewOpen ? setInterviewDraft : setChatDraft;
+  const snapshotPlan = useMemo(()=>planWithInterview(plan,history),[plan,history]);
+  const wordCount = useMemo(()=>snapshotPlan.trim().split(/\s+/).filter(Boolean).length,[snapshotPlan]);
 
   useEffect(() => {
     setReady(false);
+    setHistoryReady(false);
     let remoteTimer: ReturnType<typeof setTimeout>;
     const p = new FirestoreDocument(firebase.db, room.id, user, canEdit, (state, detail) => { setSync(state); if (detail) setError(detail); },
       name=>{ setRemoteName(name); clearTimeout(remoteTimer); remoteTimer=setTimeout(()=>setRemoteName(''),1600); },
@@ -144,6 +161,11 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
     const stopSteering = onSnapshot(collection(firebase.db,'rooms',room.id,'steering'), snapshot=>{
       setSteering(snapshot.docs.map(item=>({ ...item.data(), id:item.id } as SteeringNote)).sort((a,b)=>(a.createdAt?.toMillis() ?? Infinity)-(b.createdAt?.toMillis() ?? Infinity)));
     },e=>setError(e.message));
+    const stopInterview = onSnapshot(query(collection(firebase.db,'rooms',room.id,'interviews'),orderBy('createdAt')), {includeMetadataChanges:true}, snapshot=>{
+      const entries=snapshot.docs.map(item=>({...item.data(),id:item.id} as SavedInterviewAnswer));
+      historyRef.current=entries;setHistory(entries);
+      setHistoryReady(!snapshot.metadata.fromCache);setHistoryPending(snapshot.metadata.hasPendingWrites);
+    },e=>{setHistoryReady(false);setError(e.message);});
     const presenceDoc = canEdit && user ? doc(firebase.db,'rooms',room.id,'presence',crypto.randomUUID()) : null;
     const heartbeat = () => { if(presenceDoc&&user)void setDoc(presenceDoc,{uid:user.uid,name:user.displayName?.slice(0,100)||'Teammate',seenAt:serverTimestamp()}).catch(e=>setError(e.message)); };
     if(presenceDoc)heartbeat();
@@ -152,7 +174,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
       const current = snapshot.docs.filter(d=>(d.data().seenAt?.toMillis() || 0)>Date.now()-45000).map(d=>d.data().name as string);
       setPeople([...new Set(current)]);
     },e=>setError(e.message));
-    return ()=>{ clearTimeout(remoteTimer); clearInterval(timer); stopChat(); stopApprovals(); stopRuns(); stopSteering(); stopPresence(); if(presenceDoc)void deleteDoc(presenceDoc).catch(()=>{}); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
+    return ()=>{ clearTimeout(remoteTimer); clearInterval(timer); stopChat(); stopApprovals(); stopRuns(); stopSteering(); stopInterview(); stopPresence(); if(presenceDoc)void deleteDoc(presenceDoc).catch(()=>{}); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
   }, [firebase, room.id, user, canEdit]);
   useEffect(()=>{chatEnd.current?.scrollIntoView({block:'nearest',behavior:'smooth'});},[messages]);
 
@@ -161,31 +183,37 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
     const text = provider.document.getText('plan');
     cursor.current = { start: Y.createRelativePositionFromTypeIndex(text,editor.current.selectionStart), end: Y.createRelativePositionFromTypeIndex(text,editor.current.selectionEnd) };
   }
+  function startInterview() {
+    if(!canEdit||!ready||!historyReady||busy)return;
+    if(!interview)setInterview(getInterviewPrompt(nextInterviewIndex(historyRef.current),historyRef.current));
+    setInterviewOpen(true);
+    requestAnimationFrame(()=>composer.current?.focus());
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || busy || !provider || !user || !canEdit) return;
+    if (!draft.trim() || busy || !provider || !user || !canEdit || !ready || (interviewOpen&&!historyReady)) return;
     setBusy(true); setError('');
     try {
-      await sendMessage(firebase.db,room.id,user,draft);
-      if (interview !== null) {
-        const text = provider.document.getText('plan');
-        text.insert(text.length,'\n## ' + interviewQuestions[interview].title + '\n' + draft.trim() + '\n');
-        setInterview(interview < interviewQuestions.length-1 ? interview+1 : null);
-      }
+      if (interviewOpen && interview) {
+        await sendInterviewAnswer(firebase.db,room.id,user,interview,draft);
+        setInterview(getInterviewPrompt(Math.max(interview.index+1,nextInterviewIndex(historyRef.current)),historyRef.current));
+      } else await sendMessage(firebase.db,room.id,user,draft);
       setDraft('');
+      requestAnimationFrame(()=>composer.current?.focus({preventScroll:true}));
     } catch(e) { setError(readable(e)); } finally { setBusy(false); }
   }
   async function approve() {
-    if (!provider || !user || !canEdit) return;
+    if (!provider || !user || !canEdit || !historyReady || historyPending) return;
     setBusy(true); setError('');
     try {
       validateDag(tasks);
+      if(snapshotPlan.length>200000)throw new Error('The plan and interview history exceed the 200,000-character approval limit. Your full history is still saved.');
       await provider.flush();
       if (provider.hasUnsavedChanges()) throw new Error('Save the latest edits before approving.');
-      await addDoc(collection(firebase.db,'rooms',room.id,'approvals'),{approvedBy:user.uid,plan,tasks,status:'approved',createdAt:serverTimestamp()});
+      await addDoc(collection(firebase.db,'rooms',room.id,'approvals'),{approvedBy:user.uid,plan:snapshotPlan,tasks,status:'approved',createdAt:serverTimestamp()});
     } catch(e) { setError(readable(e)); } finally { setBusy(false); }
   }
-  const unchanged = approval?.plan === plan && JSON.stringify(approval?.tasks) === JSON.stringify(tasks);
+  const unchanged = approval?.plan === snapshotPlan && JSON.stringify(approval?.tasks) === JSON.stringify(tasks);
   const statusLabel = {connecting:'Connecting',saving:'Saving changes',saved:'All changes saved',offline:'Offline · reconnecting',error:'Changes need attention'}[sync];
   const syncDetail = <span role="status"><span className={'dot '+(sync==='saved'?'':'loading')}/>{statusLabel}</span>;
   const displayedRun = showDraft ? null : run;
@@ -195,17 +223,22 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
     {view === 'plan' ? <div className="room-grid">
       <section className="chat-panel">
         <div className="panel-heading"><h2><MessageSquare size={14}/> Conversation</h2><span className="eyebrow" style={{fontSize:8}}>{people.length} here</span></div>
-        <div className="chat-scroll"><div className="welcome-note"><strong><Sparkles size={13} className="inline mr-1"/> A good build starts with a conversation.</strong>Talk through the idea here. Shape the plan together, and use the interview to work through the details.<div className="mt-3"><Button variant="outline" size="sm" onClick={()=>setInterview(0)} disabled={!ready||!canEdit}><CircleHelp size={12}/> Grill me</Button></div></div>
+        <div className="chat-scroll"><div className="welcome-note"><strong><Sparkles size={13} className="inline mr-1"/> A good build starts with a conversation.</strong>Talk through the idea here. Shape the plan together, and use the interview to work through the details.<div className="mt-3"><Button variant="outline" size="sm" onClick={startInterview} disabled={!ready||!historyReady||!canEdit||busy||interviewOpen}><CircleHelp size={12}/> {history.length||interview?'Continue interview':'Grill me'}</Button></div></div>
         {messages.map(message=><article className="message" key={message.id}><span className="avatar">{initials(message.authorName)}</span><div><header><strong>{message.authorName}</strong><time>{message.createdAt?.toDate().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) || 'Sending'}</time></header><p>{message.text}</p></div></article>)}<div ref={chatEnd}/></div>
-        {interview !== null && <div className="question"><div className="flex justify-between items-center"><span className="eyebrow">Guided interview · {interview+1} / 4</span><button aria-label="Close interview" onClick={()=>setInterview(null)}><X size={13}/></button></div><strong>{interviewQuestions[interview].title}</strong><p>{interviewQuestions[interview].question}</p><div className="hint">Your answer will be added to the shared plan. Live Codex follow-up questions are a future milestone.</div></div>}
-        {canEdit ? <form className="composer" onSubmit={event=>void submit(event)}><textarea aria-label="Message the room" placeholder={interview===null?'Share a thought with your team…':'Answer the interview question…'} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={8000} rows={2} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void submit(e);}}}/><div className="composer-footer"><span><Hash size={10} className="inline mr-1"/> {interview===null?'Shared with everyone in this room':'Added to the plan'}</span><Button type="submit" size="icon" className="h-7 w-7" disabled={busy||!draft.trim()||!ready} aria-label="Send message"><Send size={12}/></Button></div></form> : <div className="welcome-note mt-5"><strong>Public view · read only</strong>CoCo Co members can sign in to edit the plan and join the conversation.{!user&&<Button variant="outline" size="sm" className="mt-3" onClick={onSignIn}>Member sign-in <ArrowRight size={12}/></Button>}</div>}
+        {interviewOpen && interview && <div className="question" aria-live="polite"><div className="flex justify-between items-center"><span className="eyebrow">Guided interview · Question {interview.index+1}</span><Button variant="ghost" size="icon-xs" aria-label="Pause interview" disabled={busy} onClick={()=>setInterviewOpen(false)}><X size={13}/></Button></div><strong>{interview.title}</strong><p>{interview.question}</p><div className="hint">Your answer joins the history at the bottom of the plan. <a href="#interview-history">View history ↗</a></div></div>}
+        {canEdit ? <form className="composer" onSubmit={event=>void submit(event)}><textarea ref={composer} aria-label={interviewOpen?'Answer the interview question':'Message the room'} placeholder={interviewOpen?interview?.placeholder:'Share a thought with your team…'} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={8000} rows={3} readOnly={busy} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void submit(e);}}}/><div className="composer-footer"><span><Hash size={10} className="inline mr-1"/> {interviewOpen?'Saved in interview history':'Shared with everyone in this room'}</span><Button type="submit" size="icon" className="h-7 w-7" disabled={busy||!draft.trim()||!ready||(interviewOpen&&!historyReady)} aria-label={interviewOpen?'Save interview answer':'Send message'}>{busy?<LoaderCircle size={12} className="animate-spin"/>:<Send size={12}/>}</Button></div></form> : <div className="welcome-note mt-5"><strong>Public view · read only</strong>CoCo Co members can sign in to edit the plan and join the conversation.{!user&&<Button variant="outline" size="sm" className="mt-3" onClick={onSignIn}>Member sign-in <ArrowRight size={12}/></Button>}</div>}
       </section>
       <section className="plan-panel"><div className="panel-heading"><h2><FileText size={14}/> Shared plan</h2><Badge variant="secondary" className="text-[9px] font-normal">{unchanged?'Approved snapshot':'Working draft'}</Badge></div>
-        <div className={'paper '+(remoteName?'remote-edit':'')}><div className="paper-toolbar"><span><FileText size={11} className="inline mr-1"/> plan.md</span>{remoteName?<span className="text-foreground">{remoteName} is editing</span>:syncDetail}</div><textarea ref={editor} aria-label="Shared plan" className="plan-editor" value={plan} disabled={!ready} readOnly={!canEdit} maxLength={120000} spellCheck={false} onSelect={captureCursor} onChange={e=>{if(provider){cursor.current=null;replaceText(provider.document.getText('plan'),e.target.value);captureCursor();}}}/><div className="plan-footer"><span><Users size={10} className="inline mr-1"/> {organization.memberEmails.length} teammate{organization.memberEmails.length===1?'':'s'} · editing together</span><span>{plan.trim().split(/\s+/).filter(Boolean).length} words</span></div></div>
-        <p className="hint"><CheckCheck size={11} className="inline mr-1"/> Everyone can view this demo. Members edit one document and approve fixed snapshots.</p>
+        <div className={'paper '+(remoteName?'remote-edit':'')}>
+          <div className="paper-toolbar"><span><FileText size={11} className="inline mr-1"/> plan.md</span><div className="paper-actions">{remoteName?<span className="text-foreground">{remoteName} is editing</span>:syncDetail}{canEdit&&<Button variant="ghost" size="sm" disabled={!ready} aria-pressed={editingPlan} onClick={()=>setEditingPlan(!editingPlan)}>{editingPlan?<Check size={12}/>:<Pencil size={12}/>} {editingPlan?'Done editing':'Edit plan'}</Button>}</div></div>
+          {editingPlan&&canEdit ? <textarea ref={editor} aria-label="Edit shared plan" className="plan-editor" value={plan} disabled={!ready} maxLength={120000} spellCheck={false} onSelect={captureCursor} onChange={e=>{if(provider){cursor.current=null;replaceText(provider.document.getText('plan'),e.target.value);captureCursor();}}}/> : <article aria-label="Shared plan" className="plan-rendered markdown-content">{ready?<Markdown>{plan}</Markdown>:<p className="loading">Loading the plan…</p>}</article>}
+          <InterviewHistory history={history} loading={!historyReady} canContinue={canEdit&&ready&&historyReady&&!busy&&!interviewOpen} onContinue={startInterview}/>
+          <div className="plan-footer"><span><Users size={10} className="inline mr-1"/> {organization.memberEmails.length} teammates · editing together</span><span>{wordCount} words{historyPending?' · Saving interview…':''}</span></div>
+        </div>
+        <p className="hint"><CheckCheck size={11} className="inline mr-1"/> Everyone can view this demo. Approvals include the plan and interview history as a fixed snapshot.</p>
       </section>
     </div> : <section className="control">
-      <div className="control-heading"><div><div className="eyebrow mb-2">Plan → implement → review</div><h1>Implementation</h1><p>A clear path for every task. Open a node to inspect the work or give Codex direction.</p></div><Button onClick={()=>void approve()} disabled={!canEdit||!ready||busy||sync!=='saved'||unchanged}><Check size={14}/>{unchanged?'Plan approved':'Approve plan'}</Button></div>
+      <div className="control-heading"><div><div className="eyebrow mb-2">Plan → implement → review</div><h1>Implementation</h1><p>A clear path for every task. Open a node to inspect the work or give Codex direction.</p></div><Button onClick={()=>void approve()} disabled={!canEdit||!ready||!historyReady||historyPending||busy||sync!=='saved'||unchanged}><Check size={14}/>{unchanged?'Plan approved':'Approve plan'}</Button></div>
       <div className="execution-summary"><span><FileText size={13}/>{displayedRun?'Run snapshot':unchanged?'Approved snapshot':approval?'Draft has changed':'Working draft'}</span><span><GitBranch size={13}/>{displayedTasks.length} tasks</span><span><Terminal size={13}/>{run ? `${run.mode==='demo'?'Demo run':'Latest run'} · ${run.status}` : 'Awaiting worker connection'}</span></div>
       {run && <div className="execution-scope" aria-label="Execution snapshot"><Button variant={!showDraft?'secondary':'ghost'} size="sm" aria-pressed={!showDraft} onClick={()=>{setShowDraft(false);setSelectedId(null);}}>Latest run</Button><Button variant={showDraft?'secondary':'ghost'} size="sm" aria-pressed={showDraft} onClick={()=>{setShowDraft(true);setSelectedId(null);}}>Working draft</Button><span>{showDraft?'Instructions for the next run':'Tasks from the approved run snapshot'}</span></div>}
       <ExecutionGraph tasks={displayedTasks} run={displayedRun} notes={steering} selectedId={selectedId} onSelect={id=>{if(!displayedRun)setShowDraft(true);setSelectedId(id);}}/>

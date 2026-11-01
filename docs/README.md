@@ -6,6 +6,8 @@
   behavior, rollback, and credentials.
 - [DAG inspection and steering](steering.md): task details, persistent member
   instructions, and the worker integration boundary.
+- [Plan document and continuing interview](planning-and-interview.md): rendered
+  Markdown, the growing interview transcript, and approval snapshots.
 - [Editable architecture](architecture.excalidraw) and [SVG overview](architecture.svg).
 - [Product plan and implementation sequence](../tasks/prd-multiplayer-codex-harness.md).
 

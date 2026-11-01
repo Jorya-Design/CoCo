@@ -47,6 +47,28 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time;
         allow update, delete: if false;
       }
+      match /interviews/{entryId} {
+        function pairedAnswer() {
+          let message = getAfter(/databases/$(database)/documents/rooms/$(roomId)/messages/$(entryId)).data;
+          return !exists(/databases/$(database)/documents/rooms/$(roomId)/messages/$(entryId))
+            && message.authorUid == request.auth.uid
+            && message.authorName == request.resource.data.authorName
+            && message.text == request.resource.data.answer
+            && message.createdAt == request.time;
+        }
+        allow read: if publicRoom(roomId);
+        allow create: if orgMember() && publicRoom(roomId)
+          && request.resource.data.keys().hasOnly(['questionIndex', 'title', 'question', 'answer', 'authorUid', 'authorName', 'createdAt'])
+          && request.resource.data.questionIndex is int && request.resource.data.questionIndex >= 0 && request.resource.data.questionIndex <= 1000000
+          && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200
+          && request.resource.data.question is string && request.resource.data.question.size() > 0 && request.resource.data.question.size() <= 2000
+          && request.resource.data.answer is string && request.resource.data.answer.matches('(?s).*[^\\s].*') && request.resource.data.answer.size() <= 8000
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.authorName is string && request.resource.data.authorName.size() <= 100
+          && request.resource.data.createdAt == request.time
+          && pairedAnswer();
+        allow update, delete: if false;
+      }
       match /presence/{presenceId} {
         allow read: if publicRoom(roomId);
         allow create, update: if orgMember() && publicRoom(roomId)
