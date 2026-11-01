@@ -88,6 +88,9 @@ Google sign-in is pending: the requested public support contact is
 joryatm@gmail.com, which Firebase does not currently offer as a verified support
 address for the signed-in project administrator.
 
+Start with the [docs index](docs/README.md), including the
+[auth and access inventory](docs/auth-and-access.md) and
+[deployment runbook](docs/deployment.md).
 See [the product and architecture plan](tasks/prd-multiplayer-codex-harness.md).
 The [editable architecture](docs/architecture.excalidraw) opens in Excalidraw;
 an [SVG overview](docs/architecture.svg) is also included.
