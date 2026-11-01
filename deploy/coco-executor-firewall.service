@@ -1,0 +1,12 @@
+[Unit]
+Description=Isolate CoCo executor network from metadata and private services
+Requires=docker.service
+After=docker.service
+PartOf=docker.service
+Before=coco-worker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/coco-executor-firewall
+RemainAfterExit=true
+[Install]
+WantedBy=docker.service

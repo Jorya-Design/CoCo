@@ -22,7 +22,7 @@ export function TaskInspector({ firebase, roomId, user, canEdit, task, tasks, ru
   const heading = useRef<HTMLHeadingElement>(null);
   const execution = run?.tasks.find(item => item.id === task.id);
   const interruptible = canInterrupt(run, task.id);
-  const finished = execution?.status === 'completed' || execution?.status === 'failed' || run?.status === 'completed' || run?.status === 'failed';
+  const finished = execution?.status === 'completed' || execution?.status === 'failed' || run?.status === 'completed' || run?.status === 'failed' || run?.status === 'cancelled';
   const scopedNotes = notes.filter(note => note.taskId === task.id && note.runId === (run?.id ?? null));
   const pending = scopedNotes.filter(note => note.status === 'queued');
   const history = scopedNotes.filter(note => note.status !== 'queued');
@@ -63,6 +63,7 @@ export function TaskInspector({ firebase, roomId, user, canEdit, task, tasks, ru
         </section>
 
         <section className="inspector-section steering-section" aria-labelledby="steering-title">
+          <p>Instructions are saved for later delivery. Live steering is not available in this release.</p>
           <div className="section-title"><h3 id="steering-title"><MessageSquare size={14}/> Steer implementation</h3><span>{pending.length} queued</span></div>
           <p>{finished ? 'This task has ended. Select the working draft to leave direction for the next run.' : run ? 'Give Codex a correction or a new constraint for this task.' : 'Leave direction for this task. Instructions stay queued until a worker picks them up.'}</p>
           {pending.length > 0 && <ol className="steering-queue" aria-label="Queued instructions">{pending.map(note => <li key={note.id}>
@@ -91,6 +92,7 @@ export function TaskInspector({ firebase, roomId, user, canEdit, task, tasks, ru
           </> : <div className="thread-empty"><Terminal size={20}/><strong>No Codex thread yet</strong><p>{run ? 'The worker has not attached a thread to this task.' : 'Approve the plan and connect a worker to start implementation. The thread ID and activity will appear here.'}</p></div>}
           {events.length > 0 && <ol className="thread-events" aria-label="Task activity">{events.map(event => <li key={event.id}><span className="event-dot"/><div><time>{formatTime(event.at)}</time><p>{event.text}</p></div></li>)}</ol>}
           {execution?.error && <div className="alert" role="alert">{execution.error}</div>}
+          {execution?.commit && <p className="font-mono text-xs">Commit: {execution.commit}</p>}
           {execution?.output && <details className="task-output" open><summary>Implementation output</summary><pre>{execution.output}</pre></details>}
         </section>
       </div>

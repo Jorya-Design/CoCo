@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile, type OAuthCredential, type User } from 'firebase/auth';
 import type { FirebaseError } from 'firebase/app';
-import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import * as Y from 'yjs';
 import { ArrowRight, Check, CheckCheck, CircleHelp, FileText, GitBranch, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Pencil, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { replaceText } from '../../../shared/crdt.ts';
 import { validateDag } from '../../../shared/plan.ts';
 import { getInterviewPrompt, nextInterviewIndex, planWithInterview, type InterviewPrompt } from '../../../shared/interview.ts';
 import type { Run, TaskSpec } from '../../../shared/types.ts';
+import { runtimeOnline, type RuntimeHealth } from '../../../shared/runtime.ts';
 import { ORGANIZATION_ID, ORGANIZATION_NAME, ORGANIZATION_MEMBERS, type Organization } from '../../../shared/organization.ts';
 
 const initials = (name: string) => name.split(/[ @]/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase();
@@ -116,13 +117,16 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   const [historyReady, setHistoryReady] = useState(false);
   const [historyPending, setHistoryPending] = useState(false);
   const [editingPlan, setEditingPlan] = useState(false);
-  const [approval, setApproval] = useState<{ plan: string; tasks: TaskSpec[]; createdAt: {toDate:()=>Date} | null } | null>(null);
+  const [approval, setApproval] = useState<{ id: string; plan: string; tasks: TaskSpec[]; createdAt: {toDate:()=>Date} | null } | null>(null);
+  const [pendingRun, setPendingRun] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [people, setPeople] = useState<string[]>([]);
-  const [run, setRun] = useState<Run | null>(null);
+  const [run, setRun] = useState<(Run & {error?:string}) | null>(null);
   const [showDraft, setShowDraft] = useState(false);
   const [steering, setSteering] = useState<SteeringNote[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [health, setHealth] = useState<RuntimeHealth | null>(null);
+  const [clock, setClock] = useState(Date.now());
   const editor = useRef<HTMLTextAreaElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
@@ -132,6 +136,28 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   const setDraft = interviewOpen ? setInterviewDraft : setChatDraft;
   const snapshotPlan = useMemo(()=>planWithInterview(plan,history),[plan,history]);
   const wordCount = useMemo(()=>snapshotPlan.trim().split(/\s+/).filter(Boolean).length,[snapshotPlan]);
+
+  useEffect(() => {
+    const stop = onSnapshot(doc(firebase.db,'organizations','coco-co','runtime','worker-health'),
+      snapshot => setHealth(snapshot.exists() ? snapshot.data() as RuntimeHealth : null),
+      () => setHealth(null));
+    const timer = setInterval(() => setClock(Date.now()), 10000);
+    return () => { stop(); clearInterval(timer); };
+  }, [firebase]);
+  const workerCount = runtimeOnline(health, clock) ? health!.workers.length : 0;
+  useEffect(() => {
+    setRun(null);setPendingRun(null);
+    return onSnapshot(query(collection(firebase.db,'rooms',room.id,'runs'),orderBy('createdAt'),limitToLast(1)),
+      snapshot=>setRun(snapshot.empty ? null : {id:snapshot.docs[0].id,...snapshot.docs[0].data(),roomId:room.id,mode:snapshot.docs[0].data().mode??'live',createdAt:typeof snapshot.docs[0].data().createdAt==='number'?snapshot.docs[0].data().createdAt:(snapshot.docs[0].data().createdAt?.toMillis?.()??0),events:snapshot.docs[0].data().events??[]} as Run),e=>setError(e.message));
+  },[firebase,room.id]);
+  useEffect(() => {
+    if(!pendingRun)return;
+    return onSnapshot(doc(firebase.db,'organizations','coco-co','executionRequests',pendingRun),snapshot=>{
+      const status=snapshot.data()?.status;
+      if(status && status!=='queued')setPendingRun(null);
+      if(status==='failed')setError('The execution request could not start. Check the approved plan and worker service.');
+    },e=>setError(e.message));
+  },[firebase,pendingRun]);
 
   useEffect(() => {
     setReady(false);
@@ -155,9 +181,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
     const stopChat = onSnapshot(query(collection(firebase.db,'rooms',room.id,'messages'),orderBy('createdAt'),limitToLast(100)),
       snapshot=>setMessages(snapshot.docs.map(d=>({id:d.id,...d.data()} as ChatMessage))),e=>setError(e.message));
     const stopApprovals = onSnapshot(query(collection(firebase.db,'rooms',room.id,'approvals'),orderBy('createdAt'),limitToLast(1)),
-      snapshot=>setApproval(snapshot.empty ? null : snapshot.docs[0].data() as typeof approval),e=>setError(e.message));
-    const stopRuns = onSnapshot(query(collection(firebase.db,'rooms',room.id,'runs'),orderBy('createdAt'),limitToLast(1)),
-      snapshot=>setRun(snapshot.empty ? null : { ...snapshot.docs[0].data(), id: snapshot.docs[0].id } as Run),e=>setError(e.message));
+      snapshot=>setApproval(snapshot.empty ? null : {id:snapshot.docs[0].id,...snapshot.docs[0].data()} as typeof approval),e=>setError(e.message));
     const stopSteering = onSnapshot(collection(firebase.db,'rooms',room.id,'steering'), snapshot=>{
       setSteering(snapshot.docs.map(item=>({ ...item.data(), id:item.id } as SteeringNote)).sort((a,b)=>(a.createdAt?.toMillis() ?? Infinity)-(b.createdAt?.toMillis() ?? Infinity)));
     },e=>setError(e.message));
@@ -174,7 +198,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
       const current = snapshot.docs.filter(d=>(d.data().seenAt?.toMillis() || 0)>Date.now()-45000).map(d=>d.data().name as string);
       setPeople([...new Set(current)]);
     },e=>setError(e.message));
-    return ()=>{ clearTimeout(remoteTimer); clearInterval(timer); stopChat(); stopApprovals(); stopRuns(); stopSteering(); stopInterview(); stopPresence(); if(presenceDoc)void deleteDoc(presenceDoc).catch(()=>{}); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
+    return ()=>{ clearTimeout(remoteTimer); clearInterval(timer); stopChat(); stopApprovals(); stopSteering(); stopInterview(); stopPresence(); if(presenceDoc)void deleteDoc(presenceDoc).catch(()=>{}); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
   }, [firebase, room.id, user, canEdit]);
   useEffect(()=>{chatEnd.current?.scrollIntoView({block:'nearest',behavior:'smooth'});},[messages]);
 
@@ -214,6 +238,21 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
     } catch(e) { setError(readable(e)); } finally { setBusy(false); }
   }
   const unchanged = approval?.plan === snapshotPlan && JSON.stringify(approval?.tasks) === JSON.stringify(tasks);
+  async function startRun() {
+    if(!approval || !user?.email || !canEdit || busy || pendingRun)return;
+    setBusy(true);setError('');
+    try {
+      const request=await addDoc(collection(firebase.db,'organizations','coco-co','executionRequests'),{
+        roomId:room.id,approvalId:approval.id,requestedBy:user.uid,requestedByEmail:user.email.toLowerCase(),status:'queued',createdAt:serverTimestamp(),
+      });
+      setPendingRun(request.id);
+    } catch(e){setError(readable(e));}finally{setBusy(false);}
+  }
+  async function cancelRun(id:string) {
+    setBusy(true);setError('');
+    try {await updateDoc(doc(firebase.db,'organizations','coco-co','executionRequests',id),{status:'cancelled'});}
+    catch(e){setError(readable(e));}finally{setBusy(false);}
+  }
   const statusLabel = {connecting:'Connecting',saving:'Saving changes',saved:'All changes saved',offline:'Offline · reconnecting',error:'Changes need attention'}[sync];
   const syncDetail = <span role="status"><span className={'dot '+(sync==='saved'?'':'loading')}/>{statusLabel}</span>;
   const displayedRun = showDraft ? null : run;
@@ -239,10 +278,11 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
       </section>
     </div> : <section className="control">
       <div className="control-heading"><div><div className="eyebrow mb-2">Plan → implement → review</div><h1>Implementation</h1><p>A clear path for every task. Open a node to inspect the work or give Codex direction.</p></div><Button onClick={()=>void approve()} disabled={!canEdit||!ready||!historyReady||historyPending||busy||sync!=='saved'||unchanged}><Check size={14}/>{unchanged?'Plan approved':'Approve plan'}</Button></div>
-      <div className="execution-summary"><span><FileText size={13}/>{displayedRun?'Run snapshot':unchanged?'Approved snapshot':approval?'Draft has changed':'Working draft'}</span><span><GitBranch size={13}/>{displayedTasks.length} tasks</span><span><Terminal size={13}/>{run ? `${run.mode==='demo'?'Demo run':'Latest run'} · ${run.status}` : 'Awaiting worker connection'}</span></div>
+      <div className="execution-summary"><span><FileText size={13}/>{displayedRun?'Run snapshot':unchanged?'Approved snapshot':approval?'Draft has changed':'Working draft'}</span><span><GitBranch size={13}/>{displayedTasks.length} tasks</span><span><Terminal size={13}/>{run ? `${run.mode==='demo'?'Demo run':'Latest run'} · ${run.status}` : 'No run yet'}</span><span><Terminal size={13}/>{workerCount ? `${workerCount} Linux worker connected` : 'Linux worker offline'}</span></div>
       {run && <div className="execution-scope" aria-label="Execution snapshot"><Button variant={!showDraft?'secondary':'ghost'} size="sm" aria-pressed={!showDraft} onClick={()=>{setShowDraft(false);setSelectedId(null);}}>Latest run</Button><Button variant={showDraft?'secondary':'ghost'} size="sm" aria-pressed={showDraft} onClick={()=>{setShowDraft(true);setSelectedId(null);}}>Working draft</Button><span>{showDraft?'Instructions for the next run':'Tasks from the approved run snapshot'}</span></div>}
       <ExecutionGraph tasks={displayedTasks} run={displayedRun} notes={steering} selectedId={selectedId} onSelect={id=>{if(!displayedRun)setShowDraft(true);setSelectedId(id);}}/>
       <div className="execution-caption"><p><GitBranch size={13}/> Map tasks build independently. Reduce tasks bring their results together.</p>{approval ? <span><CheckCheck size={12}/> Approved {approval.createdAt?.toDate().toLocaleString() || 'just now'}</span> : <span>Approve a snapshot when the plan is ready.</span>}</div>
+      <div className="flex gap-3 items-center mt-4"><Button onClick={()=>void startRun()} disabled={!canEdit||!ready||!historyReady||historyPending||sync!=='saved'||busy||!unchanged||!workerCount||!health?.executionReady||!!pendingRun||run?.status==='running'}><Terminal size={14}/>{pendingRun?'Queued for worker':'Run approved plan'}</Button>{canEdit&&(pendingRun||run?.status==='running')&&<Button variant="outline" disabled={busy} onClick={()=>void cancelRun(pendingRun||run!.id)}>Cancel run</Button>}<span className="hint">Runs use this CoCo repository at the deployed revision. Results stay on the VM.</span></div>
     </section>}
     {view==='control' && selectedTask && <TaskInspector key={selectedTask.id+'-'+(displayedRun?.id??'draft')} firebase={firebase} roomId={room.id} user={user} canEdit={canEdit} task={selectedTask} tasks={displayedTasks} run={displayedRun} notes={steering} onSelect={setSelectedId} onClose={()=>setSelectedId(null)} onSignIn={onSignIn}/>}
     {error && <div className="alert mx-6" role="alert">{error} {sync==='error'&&<Button size="sm" variant="outline" onClick={()=>{setError('');void provider?.flush();}}>Retry saving</Button>}</div>}

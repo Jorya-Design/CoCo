@@ -8,9 +8,11 @@
   instructions, and the worker integration boundary.
 - [Plan document and continuing interview](planning-and-interview.md): rendered
   Markdown, the growing interview transcript, and approval snapshots.
+- [Worker machine authentication](worker-machine-auth.md): per-worker bearer
+  credentials, revocation, private VM services, and the gated deployment workflow.
 - [Editable architecture](architecture.excalidraw) and [SVG overview](architecture.svg).
 - [Product plan and implementation sequence](../tasks/prd-multiplayer-codex-harness.md).
 
-The initial app provides real Firebase collaboration. Linux Codex orchestration
-is the next milestone; its future identity and permissions are documented
-separately from access already configured.
+The app provides Firebase collaboration and a privately deployed Linux Codex
+worker. Worker identity, deployment, execution limits and remaining integration
+work are described in the worker authentication document.
