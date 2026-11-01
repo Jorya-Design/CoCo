@@ -8,7 +8,7 @@ const timer=setTimeout(()=>{child.kill();process.exitCode=1;},30000);
 let initialized=false,thread=false;
 const send=value=>child.stdin.write(JSON.stringify(value)+'\n');
 child.stdin.on('error',()=>{});
-child.stderr.resume();
+child.stderr.pipe(process.stderr); // CI check has no credentials or repository mount.
 lines.on('line',line=>{
   const message=JSON.parse(line);
   if(message.error){console.error('Codex protocol smoke check failed');child.kill();process.exitCode=1;return;}
@@ -19,5 +19,5 @@ lines.on('line',line=>{
   if(message.id===2 && message.result?.thread?.id){thread=true;console.log('Codex stdio initialize/thread/start verified');child.stdin.end();}
 });
 child.on('error',()=>{process.exitCode=1;clearTimeout(timer);});
-child.on('close',()=>{clearTimeout(timer);lines.close();if(!initialized||!thread)process.exitCode=1;});
+child.on('close',code=>{clearTimeout(timer);lines.close();if(!initialized||!thread){console.error('Codex container exited before protocol handshake:',code);process.exitCode=1;}});
 send({id:1,method:'initialize',params:{clientInfo:{name:'coco-protocol-test',version:'0.1.0'}}});

@@ -53,7 +53,9 @@ while (!stopping) {
               .catch(()=>controller.abort()).finally(()=>{heartbeatPending=false;});
           },20000);
           let result:{success:boolean;output:string;commit?:string};
-          try {result=await runContainer(job,controller.signal);}
+          try {result=await runContainer(job,controller.signal,threadId=>{
+            void request({type:'worker/thread',...key,threadId}).then(reply=>{if(!reply.active)controller.abort();}).catch(()=>controller.abort());
+          });}
           catch {result={success:false,output:'Worker executor stopped or became unavailable.'};}
           finally {clearInterval(timer);attempt=undefined;}
           if(controller.signal.aborted)throw new Error('Attempt cancelled');

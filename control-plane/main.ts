@@ -30,7 +30,7 @@ const service = createMachineServer(registry,5000,scheduler && proxy ? {
     const grant = grants.get(identity.workerId);
     const accepted = await scheduler.report(identity,command);
     if (grant?.attemptId === command.attemptId) {
-      if (command.type==='worker/heartbeat' && accepted) proxy.renew(grant.token);
+      if (command.type!=='worker/result' && accepted) proxy.renew(grant.token);
       else { proxy.revoke(grant.token); grants.delete(identity.workerId); }
     }
     return {type:'worker/ack',attemptId:command.attemptId,active:accepted};

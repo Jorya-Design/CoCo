@@ -48,6 +48,7 @@ export class Scheduler {
           tasks = taskSpecSchema.array().min(1).max(100).parse(snapshot.tasks).map(task=>({...task,status:'pending' as const}));
           validateDag(tasks);
           if (typeof snapshot.plan !== 'string' || snapshot.plan.length > 200000) throw new Error();
+          if (Buffer.byteLength(JSON.stringify({plan:snapshot.plan,tasks}),'utf8')>256000) throw new Error('Snapshot too large for execution');
         } catch { tx.update(candidate.ref,{status:'failed'}); return null; }
         const run = runSnap.exists ? runSnap.data() as ExecutionRun : {
           status:'running' as const, tasks, plan:snapshot.plan as string, baseSha:this.baseSha,
@@ -59,7 +60,7 @@ export class Scheduler {
         const fence = (task.fence ?? 0) + 1;
         const lease: RunLease & {taskId:string} = { roomId:request.roomId, runId:candidate.id, attemptId, fence,
           workerId:identity.workerId, expiresAt:Date.now()+leaseMs, status:'active', taskId:task.id };
-        const assigned = run.tasks.map(entry=>entry.id===task.id ? {...entry,status:'running' as const,attemptId,fence,workerId:identity.workerId} : entry);
+        const assigned = run.tasks.map(entry=>entry.id===task.id ? {...entry,status:'running' as const,attemptId,fence,workerId:identity.workerId,startedAt:Date.now()} : entry);
         tx.set(runRef,{...run,tasks:assigned,workerId:identity.workerId,approvalId:request.approvalId,
           ...(!runSnap.exists ? {createdAt:FieldValue.serverTimestamp()} : {}),updatedAt:FieldValue.serverTimestamp()});
         tx.update(candidate.ref,{status:'running'});
@@ -106,11 +107,15 @@ export class Scheduler {
       if (command.type === 'worker/heartbeat') {
         tx.update(leaseRef,{expiresAt:Date.now()+leaseMs}); return true;
       }
+      if (command.type === 'worker/thread') {
+        tx.update(runRef,{tasks:run.tasks.map(task=>task.id===lease!.taskId ? {...task,threadId:command.threadId} : task)});
+        return true;
+      }
       if (command.success && !command.commit) throw new Error('A completed coding task must include a commit');
       const task = run.tasks.find(task=>task.id===lease!.taskId);
       if (!task || task.status !== 'running' || task.attemptId !== command.attemptId || task.fence !== command.fence) throw new Error('Stale attempt');
       const tasks = run.tasks.map(task=>task.id===lease!.taskId ? {
-        ...task,status:command.success?'completed' as const:'failed' as const,output:command.output,
+        ...task,status:command.success?'completed' as const:'failed' as const,output:boundedOutput(command.output),completedAt:Date.now(),
         ...(command.commit ? {commit:command.commit} : {}),
       } : task);
       const status = !command.success ? 'failed' : tasks.every(task=>task.status==='completed') ? 'completed' : 'running';
@@ -120,4 +125,12 @@ export class Scheduler {
       return true;
     });
   }
+}
+
+function boundedOutput(value: string) {
+  const suffix='\n[Output truncated]';
+  let output=value;
+  while(Buffer.byteLength(JSON.stringify(output+(output===value?'':suffix)),'utf8')>4096)
+    output=output.slice(0,Math.floor(output.length*0.8));
+  return output===value?output:output+suffix;
 }

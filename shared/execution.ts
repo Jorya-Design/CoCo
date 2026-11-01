@@ -12,6 +12,7 @@ export const leaseKeySchema = z.object({
 export const workerCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('worker/poll') }).strict(),
   leaseKeySchema.extend({ type: z.literal('worker/heartbeat') }).strict(),
+  leaseKeySchema.extend({ type: z.literal('worker/thread'), threadId: z.string().min(1).max(128) }).strict(),
   leaseKeySchema.extend({ type: z.literal('worker/result'), success: z.boolean(),
     output: z.string().max(16000), commit: z.string().regex(/^[a-f0-9]{40}$/).optional() }).strict(),
 ]);

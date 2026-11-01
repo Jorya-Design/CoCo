@@ -148,7 +148,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   useEffect(() => {
     setRun(null);setPendingRun(null);
     return onSnapshot(query(collection(firebase.db,'rooms',room.id,'runs'),orderBy('createdAt'),limitToLast(1)),
-      snapshot=>setRun(snapshot.empty ? null : {id:snapshot.docs[0].id,...snapshot.docs[0].data(),roomId:room.id,mode:'live',createdAt:snapshot.docs[0].data().createdAt?.toMillis()??0,events:snapshot.docs[0].data().events??[]} as Run),e=>setError(e.message));
+      snapshot=>setRun(snapshot.empty ? null : {id:snapshot.docs[0].id,...snapshot.docs[0].data(),roomId:room.id,mode:snapshot.docs[0].data().mode??'live',createdAt:typeof snapshot.docs[0].data().createdAt==='number'?snapshot.docs[0].data().createdAt:(snapshot.docs[0].data().createdAt?.toMillis?.()??0),events:snapshot.docs[0].data().events??[]} as Run),e=>setError(e.message));
   },[firebase,room.id]);
   useEffect(() => {
     if(!pendingRun)return;

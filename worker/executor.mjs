@@ -68,6 +68,7 @@ try {
   send({method:'initialized',params:{}});
   const {thread}=await rpc('thread/start',{cwd,approvalPolicy:'never',sandbox:'danger-full-access',modelProvider:'coco',
     config:{'shell_environment_policy.exclude':['COCO_INFERENCE_TOKEN']}});
+  console.log(JSON.stringify({type:'worker/thread',threadId:thread.id}));
   await rpc('turn/start',{threadId:thread.id,cwd,approvalPolicy:'never',sandboxPolicy:{type:'externalSandbox',networkAccess:'enabled'},
     input:[{type:'text',text:`Implement this approved task in the current repository. Work only in the task worktree. Do not deploy or push. The supervisor will preserve your final changes as a commit. Report actual checks and limitations.\n\nTask: ${job.task.title}\n${job.task.description}\n\nApproved plan:\n${job.plan}`}]});
   await completed;
