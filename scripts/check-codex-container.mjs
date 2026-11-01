@@ -17,10 +17,10 @@ lines.on('line',line=>{
     send({id:2,method:'thread/start',params:{cwd:'/tmp',sandbox:'read-only',approvalPolicy:'never',modelProvider:'coco'}});
   }
   if(message.id===2 && message.result?.thread?.id){
-    thread=true;send({id:3,method:'command/exec',params:{cwd:'/tmp',command:['node','-e','process.stdout.write("isolation ok")'],sandboxPolicy:{type:'externalSandbox',networkAccess:'enabled'},timeoutMs:5000}});
+    thread=true;send({id:3,method:'command/exec',params:{cwd:'/tmp',command:['node','-e','const gh=require("node:child_process").spawnSync("gh",["--version"]);if(gh.status!==0)process.exit(1);process.stdout.write("isolation ok")'],sandboxPolicy:{type:'externalSandbox',networkAccess:'enabled'},timeoutMs:5000}});
   }
   if(message.id===3 && message.result?.exitCode===0 && message.result?.stdout==='isolation ok'){
-    executed=true;console.log('Codex stdio, configured provider and external sandbox verified');child.stdin.end();
+    executed=true;console.log('Codex stdio, configured provider, external sandbox and GitHub CLI verified');child.stdin.end();
   }
 });
 child.on('error',()=>{process.exitCode=1;clearTimeout(timer);});

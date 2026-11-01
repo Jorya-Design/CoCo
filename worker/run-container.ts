@@ -1,10 +1,21 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { spawn, execFile } from 'node:child_process';
-import type { ExecutionJob } from '../shared/execution.ts';
+import { executionResultSchema, type ExecutionJob, type ExecutionResult } from '../shared/execution.ts';
 import type { PlanningJob } from '../shared/planning.ts';
 
-export async function runContainer(job: ExecutionJob | PlanningJob, signal: AbortSignal, onThread?: (threadId:string)=>void): Promise<{success:boolean;output:string;commit?:string}> {
+export async function runContainer(job: ExecutionJob | PlanningJob, signal: AbortSignal, onThread?: (threadId:string)=>void): Promise<ExecutionResult> {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(job.runId) || !/^[a-f0-9-]{36}$/.test(job.attemptId)) throw new Error('Invalid job');
+  const publication = 'publication' in job ? job.publication : undefined;
+  // Read the VM secret only for the final publication, never for planning or DAG tasks.
+  let githubToken: string | undefined;
+  if (publication) {
+    const file = process.env.COCO_GITHUB_TOKEN_FILE;
+    if (!file) return {success:false,output:'PR creation requires COCO_GITHUB_TOKEN_FILE on the worker.'};
+    try { githubToken = (await readFile(file,'utf8')).trim(); } catch {
+      return {success:false,output:'The worker could not read the GitHub bot token file.'};
+    }
+    if (!/^[A-Za-z0-9_]{20,512}$/.test(githubToken)) return {success:false,output:'The worker GitHub bot token is invalid.'};
+  }
   const root = `/var/lib/coco-worker/runs/${job.runId}`;
   const planning = ('kind' in job && job.kind === 'planning') || ('planning' in job && !!job.planning);
   if (!planning) await mkdir(root,{recursive:true,mode:0o700});
@@ -23,7 +34,7 @@ export async function runContainer(job: ExecutionJob | PlanningJob, signal: Abor
   const timer=setTimeout(abort,(planning ? 3 : 20)*60*1000);
   if(signal.aborted)abort();
   child.stdin.on('error',()=>{});
-  child.stdin.end(JSON.stringify(job));
+  child.stdin.end(JSON.stringify({...job,...(githubToken ? {githubToken} : {})}));
   try {
     return await new Promise((resolve,reject)=>{
       child.stdout.on('data',chunk=>{
@@ -43,9 +54,12 @@ export async function runContainer(job: ExecutionJob | PlanningJob, signal: Abor
         if(code!==0||signal.aborted){reject(new Error('Executor stopped'));return;}
         try {
           if(output.trim())result=JSON.parse(output.trim());
-          if(typeof result.success!=='boolean'||typeof result.output!=='string'||result.output.length>16000
-            || (result.success && !planning && !/^[a-f0-9]{40}$/.test(result.commit)))throw new Error();
-          resolve(result);
+          const parsed=executionResultSchema.parse(result);
+          if(parsed.success && !planning && !parsed.commit)throw new Error();
+          if(parsed.success && publication && (!parsed.pullRequest || parsed.pullRequest.commit!==parsed.commit
+            || parsed.pullRequest.branch!==publication.branch || parsed.pullRequest.base!==publication.base))throw new Error();
+          if(parsed.pullRequest && (!publication || !parsed.success))throw new Error();
+          resolve(parsed);
         } catch {reject(new Error('Invalid executor result'));}
       });
     });

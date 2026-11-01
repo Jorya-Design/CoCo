@@ -55,6 +55,7 @@ jobs:
           COCO_WORKER_TOKEN: ${{ secrets.COCO_WORKER_TOKEN }}
           COCO_WORKER_TOKEN_EXPIRES_AT: ${{ vars.COCO_WORKER_TOKEN_EXPIRES_AT }}
           COCO_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          COCO_GITHUB_BOT_TOKEN: ${{ secrets.COCO_GITHUB_BOT_TOKEN }}
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           workload_identity_provider: projects/375045542679/locations/global/workloadIdentityPools/coco-github/providers/github

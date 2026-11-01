@@ -10,8 +10,11 @@ documents persisted and synchronized through Cloud Firestore.
 The first slice is **CoCo Co**, a public read-only hackathon workspace. Its two
 verified members, jhosephchi@gmail.com and suryansh@gmail.com, can edit shared
 plans, chat, create rooms, and approve immutable DAG snapshots.
-The Linux Codex scheduler and coding workers are the next milestone. The UI
-does not simulate successful execution.
+The journey is **Plan & conversation → Implementation → PR to Review**.
+After every task in an approved run completes, a separate Codex publication
+stage creates one bot-authored GitHub PR for the integrated result. The PR is
+the final stage, outside the implementation DAG; review and merge happen on GitHub.
+The UI shows actual worker results and verified PR links.
 
 ## Local development
 

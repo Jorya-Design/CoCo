@@ -101,8 +101,40 @@ the run workspace. Memory, CPU, process count and a 20-minute task timeout bound
 execution. Codex uses external-sandbox mode because Docker provides isolation.
 
 Results and commit SHAs are durable in `rooms/{roomId}/runs/{runId}`. Git objects
-and worktrees stay in `/var/lib/coco-worker/runs/{runId}`; they are not pushed to
-GitHub automatically. Cancellation kills the container and revokes inference;
+and worktrees stay in `/var/lib/coco-worker/runs/{runId}`. When **all** DAG tasks
+finish, the scheduler starts a separate final publication attempt; this is not a
+DAG node and does not change the approved task graph. Codex checks the integrated
+work, pushes `codex/coco-{runId}`, and uses `gh` to create one open, non-draft PR
+against `Jorya-Design/CoCo:main`. It never merges the PR or deploys the result.
+The executor queries GitHub to verify the PR's repository, branch, base, and head
+commit. A run is only completed after that verified PR is persisted as
+`pullRequest`; publication state and output are stored separately as `publication`.
+The **PR to Review** view links to that PR. Publication failure fails the run
+visibly while preserving implementation results. An interrupted or failed
+publication can leave a branch or PR on GitHub; inspect it before starting a new run.
+Cancellation kills the container and revokes inference;
 an expired attempt fails visibly and requires an explicit new run. Parallel
 slots, remote artifact transfer, automated retries and workspace retention/cleanup
 are future work. Review disk usage before launching many runs.
+
+### GitHub automation account credential
+
+The automation identity is a regular GitHub user account authenticated with its
+personal access token (PAT). The existing `COCO_GITHUB_BOT_TOKEN` secret name
+refers to that user's PAT; no GitHub App or installation token is required.
+
+Provision the bot token in `/etc/coco/worker/github-token` (root-owned, mode 0640,
+group `coco-worker`), or use the production environment secret
+`COCO_GITHUB_BOT_TOKEN` with the worker VM workflow. The supervisor reads
+`COCO_GITHUB_TOKEN_FILE` and passes it through stdin only to the final publication
+container, where Codex's shell receives it as `GH_TOKEN`. Planning and DAG tasks
+receive no GitHub credential; no token is stored in Firestore, the browser, Docker
+arguments, image layers, repository remotes, or worktrees. The CLI credential
+helper configuration lives in disposable `/tmp` and reads the environment.
+
+Use a bot credential restricted to this repository with Contents and Pull requests
+read/write permissions. If an approved change edits GitHub Actions workflows,
+the credential also needs permission to update workflows. Keep branch protection
+on `main` and prevent the bot from bypassing review. Rotate by replacing the VM
+file atomically or updating the production secret and redeploying. Without a
+configured token, implementation is preserved and publication reports a clear failure.

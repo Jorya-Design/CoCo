@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { taskSpecSchema, type ExecutionRun, type ExecutionTask, type ExecutionJob, type WorkerCommand } from '../shared/execution.ts';
+import { pullRequestSchema, taskSpecSchema, type ExecutionRun, type ExecutionTask, type ExecutionJob, type WorkerCommand } from '../shared/execution.ts';
 import { validateDag } from '../shared/plan.ts';
 import { authorizeWorkerRun, type RunLease, type WorkerIdentity } from './worker-auth.ts';
+import { publicationTarget } from '../shared/publication.ts';
 
 const leaseMs = 90000;
 const requestsPath = 'organizations/coco-co/executionRequests';
@@ -55,14 +56,19 @@ export class Scheduler {
           status:'running' as const, tasks, plan:snapshot.plan as string, baseSha:this.baseSha,
         };
         if (run.status !== 'running' || (run.workerId && run.workerId !== identity.workerId)) return null;
-        const task = run.tasks.find(task=>task.status === 'pending' && task.dependencies.every(id=>run.tasks.some(dep=>dep.id===id && dep.status==='completed')));
+        const publishing = run.tasks.every(task=>task.status==='completed');
+        const task = publishing ? run.publication ?? {
+          id:'publish-pr',title:'Create PR for review',description:'Validate the integrated result and create the bot-authored GitHub pull request.',
+          kind:'reduce' as const,dependencies:run.tasks.map(task=>task.id),status:'pending' as const,
+        } : run.tasks.find(task=>task.status === 'pending' && task.dependencies.every(id=>run.tasks.some(dep=>dep.id===id && dep.status==='completed')));
         if (!task) return null;
+        if (task.status !== 'pending') return null;
         const attemptId = randomUUID();
         const fence = (task.fence ?? 0) + 1;
-        const lease: RunLease & {taskId:string} = { roomId:request.roomId, runId:candidate.id, attemptId, fence,
-          workerId:identity.workerId, expiresAt:Date.now()+leaseMs, status:'active', taskId:task.id };
-        const assigned = run.tasks.map(entry=>entry.id===task.id ? {...entry,status:'running' as const,attemptId,fence,workerId:identity.workerId,startedAt:Date.now()} : entry);
-        tx.set(runRef,{...run,tasks:assigned,workerId:identity.workerId,approvalId:request.approvalId,
+        const lease: RunLease & {taskId:string;kind:string} = { roomId:request.roomId, runId:candidate.id, attemptId, fence,
+          workerId:identity.workerId, expiresAt:Date.now()+leaseMs, status:'active', taskId:task.id,kind:publishing?'publication':'execution' };
+        const assigned = {...task,status:'running' as const,attemptId,fence,workerId:identity.workerId,startedAt:Date.now()};
+        tx.set(runRef,{...run,...(publishing ? {publication:assigned} : {tasks:run.tasks.map(entry=>entry.id===task.id ? assigned : entry)}),workerId:identity.workerId,approvalId:request.approvalId,
           ...(!runSnap.exists ? {createdAt:FieldValue.serverTimestamp()} : {}),updatedAt:FieldValue.serverTimestamp()});
         tx.update(candidate.ref,{status:'running'});
         tx.set(this.lease(identity.workerId),lease);
@@ -78,7 +84,7 @@ export class Scheduler {
         };
         task.dependencies.forEach(collect);
         return {roomId:lease.roomId,runId:lease.runId,attemptId,fence,task:taskSpecSchema.parse(task),plan:run.plan,baseSha:run.baseSha,
-          dependencyCommits:[...commits]};
+          dependencyCommits:[...commits],...(publishing ? {publication:publicationTarget(candidate.id)} : {})};
       });
       if (result) return result;
     }
@@ -88,7 +94,7 @@ export class Scheduler {
     return this.db.runTransaction(async tx => {
       const leaseRef = this.lease(identity.workerId);
       const leaseSnap = await tx.get(leaseRef);
-      const lease = leaseSnap.exists ? leaseSnap.data() as RunLease & {taskId:string} : null;
+      const lease = leaseSnap.exists ? leaseSnap.data() as RunLease & {taskId:string;kind?:string} : null;
       authorizeWorkerRun(identity,command,lease);
       const requestRef = this.db.doc(`${requestsPath}/${command.runId}`);
       const runRef = this.db.doc(`rooms/${command.roomId}/runs/${command.runId}`);
@@ -109,18 +115,25 @@ export class Scheduler {
         tx.update(leaseRef,{expiresAt:Date.now()+leaseMs}); return true;
       }
       if (command.type === 'worker/thread') {
-        tx.update(runRef,{tasks:run.tasks.map(task=>task.id===lease!.taskId ? {...task,threadId:command.threadId} : task)});
+        tx.update(runRef,lease!.kind==='publication' ? {publication:{...run.publication!,threadId:command.threadId}}
+          : {tasks:run.tasks.map(task=>task.id===lease!.taskId ? {...task,threadId:command.threadId} : task)});
         return true;
       }
       if (command.success && !command.commit) throw new Error('A completed coding task must include a commit');
-      const task = run.tasks.find(task=>task.id===lease!.taskId);
+      const publishing = lease!.kind==='publication';
+      if (publishing && command.success && (!command.pullRequest || command.pullRequest.commit!==command.commit
+        || command.pullRequest.branch!==publicationTarget(command.runId).branch)) throw new Error('A completed run must include its published pull request');
+      if (command.pullRequest && (!publishing || !command.success)) throw new Error('Unexpected pull request result');
+      if (command.pullRequest) pullRequestSchema.parse(command.pullRequest);
+      const task = publishing ? run.publication : run.tasks.find(task=>task.id===lease!.taskId);
       if (!task || task.status !== 'running' || task.attemptId !== command.attemptId || task.fence !== command.fence) throw new Error('Stale attempt');
-      const tasks = run.tasks.map(task=>task.id===lease!.taskId ? {
+      const finished = {
         ...task,status:command.success?'completed' as const:'failed' as const,output:boundedOutput(command.output),completedAt:Date.now(),
         ...(command.commit ? {commit:command.commit} : {}),
-      } : task);
-      const status = !command.success ? 'failed' : tasks.every(task=>task.status==='completed') ? 'completed' : 'running';
-      tx.update(runRef,{tasks,status,updatedAt:FieldValue.serverTimestamp()});
+      };
+      const status = !command.success ? 'failed' : publishing ? 'completed' : 'running';
+      tx.update(runRef,{...(publishing ? {publication:finished} : {tasks:run.tasks.map(entry=>entry.id===task.id ? finished : entry)}),
+        ...(command.pullRequest ? {pullRequest:command.pullRequest} : {}),status,updatedAt:FieldValue.serverTimestamp()});
       tx.update(requestRef,{status});
       tx.update(leaseRef,{status:'completed'});
       return true;

@@ -8,6 +8,7 @@ User=coco-worker
 Group=coco-worker
 WorkingDirectory=/opt/coco/current
 Environment=COCO_WORKER_TOKEN_FILE=/etc/coco/worker/token
+Environment=COCO_GITHUB_TOKEN_FILE=/etc/coco/worker/github-token
 Environment=COCO_CONTROL_PLANE_URL=ws://127.0.0.1:8787
 EnvironmentFile=/etc/coco/runtime.env
 SupplementaryGroups=docker

@@ -8,7 +8,9 @@ A small trusted team in CoCo Co uses one repository and one Linux host. The
 hackathon org is publicly viewable; jhosephchi@gmail.com and suryansh@gmail.com
 are its two editing members. They discuss an
 idea, edit a shared plan, approve a fixed plan revision, execute a dependency
-graph of Codex coding tasks, then review the integrated result.
+graph of Codex coding tasks, then review a single Codex-created pull request.
+The journey is **Plan & conversation → Implementation → PR to Review**.
+PR creation is the ultimate stage after the entire DAG completes, outside its tasks.
 
 Firebase Hosting serves the React app. Firebase Authentication identifies users.
 Firestore stores and streams the Yjs CRDT updates, chat, memberships, approvals,
@@ -69,7 +71,8 @@ As an operator, I want independent tasks to run concurrently and produce one rev
 - [ ] A task starts only after all required upstream artifacts are accepted.
 - [ ] Reduce tasks integrate actual Git commits and run acceptance checks.
 - [ ] Failures, requests for input, retries, and cancellation are visible.
-- [ ] Final output includes the integrated branch, diff, commit SHA, and real test results.
+- [ ] After every DAG task completes, a separate Codex stage uses the worker's GitHub bot token to push the integrated branch and create one PR for review.
+- [ ] Final output includes the verified PR link, integrated branch, commit SHA, and real test results; the run completes only after the PR exists.
 - [ ] Typecheck passes.
 - [ ] Verify in browser using dev-browser skill, or available browser automation.
 
@@ -90,7 +93,7 @@ FR-9. Fence stale attempt outputs. On lease loss, reconcile or stop the old
 process before retrying; database fencing cannot undo shell side effects.
 FR-10. Persist ordered execution events and allow clients to resume from a cursor.
 FR-11. Pause stops new dispatch; interrupt requests cancellation of running work.
-FR-12. Complete a run only after integration checks produce a reviewable result.
+FR-12. Complete a run only after all DAG tasks finish and the separate final stage creates a verified GitHub PR for the integrated result. Human review and merge happen on GitHub.
 
 ## Architecture
 
@@ -104,7 +107,8 @@ flowchart TB
   CP --> B[Codex session B / isolated worktree]
   A --> Reduce[Reduce / integrate commits + validate]
   B --> Reduce
-  Reduce --> Review[Final diff + test evidence / team review]
+  Reduce --> Publish[Codex creates one bot-authored PR after the DAG]
+  Publish --> Review[PR to Review / team reviews on GitHub]
   Review --> Data
 ~~~
 
