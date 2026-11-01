@@ -1,10 +1,8 @@
-import { memo, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateProfile, type User } from 'firebase/auth';
 import { addDoc, collection, deleteDoc, doc, limitToLast, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import * as Y from 'yjs';
-import { Background, Controls, Handle, Position, ReactFlow, type NodeProps, type Node } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import { ArrowDownToLine, ArrowRight, Check, CheckCheck, ChevronDown, CircleHelp, FileText, GitBranch, Hash, Layers3, LayoutDashboard, LoaderCircle, LogOut, MessageSquare, MoreHorizontal, Plus, Send, Sparkles, Terminal, Users, X } from 'lucide-react';
+import { ArrowRight, Check, CheckCheck, CircleHelp, FileText, GitBranch, Hash, Layers3, LoaderCircle, LogOut, MessageSquare, Moon, Plus, Send, Sparkles, Sun, Terminal, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -12,9 +10,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { Firebase } from '@/lib/firebase';
 import { createRoom, sendMessage, type ChatMessage, type Room } from '@/lib/rooms';
 import { FirestoreDocument, type SyncState } from '@/lib/collaboration';
+import { ExecutionGraph } from '@/components/execution-graph';
+import { TaskInspector } from '@/components/task-inspector';
+import type { SteeringNote } from '@/lib/steering';
 import { replaceText } from '../../../shared/crdt.ts';
 import { interviewQuestions, validateDag } from '../../../shared/plan.ts';
-import type { TaskSpec } from '../../../shared/types.ts';
+import type { Run, TaskSpec } from '../../../shared/types.ts';
 import { ORGANIZATION_ID, ORGANIZATION_NAME, ORGANIZATION_MEMBERS, type Organization } from '../../../shared/organization.ts';
 
 const initials = (name: string) => name.split(/[ @]/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase();
@@ -58,29 +59,7 @@ function VerifyEmail({firebase,user,onVerified}:{firebase:Firebase;user:User;onV
   return <main className="auth"><div className="auth-card"><Brand/><h1>Check your inbox.</h1><p>Verify {user.email} to enable member editing.</p><p role="status" style={{fontSize:12}}>{notice}</p><Button className="w-full" disabled={busy} onClick={()=>{setBusy(true);void user.reload().then(()=>user.getIdToken(true)).then(()=>{if(user.emailVerified)onVerified();else setNotice('The email has not been verified yet. Open the link, then try again.');}).catch(e=>setNotice(readable(e))).finally(()=>setBusy(false));}}>I’ve verified my email <ArrowRight size={14}/></Button><div className="flex justify-between mt-4 text-[11px] text-muted-foreground"><button onClick={()=>void sendEmailVerification(user).then(()=>setNotice('Verification email sent.')).catch(e=>setNotice(readable(e)))}>Resend email</button><button onClick={()=>void signOut(firebase.auth)}>Sign out</button></div></div></main>;
 }
 
-function TaskNode({ data }: NodeProps<Node<{ task: TaskSpec }>>) {
-  return <div className="task-node"><Handle type="target" position={Position.Left}/><div className="eyebrow" style={{fontSize:8}}>{data.task.kind === 'reduce' ? 'Reduce · integrate' : 'Map · build'}</div><strong>{data.task.title}</strong><small>{data.task.dependencies.length ? 'Waits for ' + data.task.dependencies.length + ' inputs' : 'Ready when run starts'}</small><Handle type="source" position={Position.Right}/></div>;
-}
-const nodeTypes = { task: TaskNode };
-const ExecutionGraph = memo(function ExecutionGraph({ tasks }: { tasks: TaskSpec[] }) {
-  const depths = new Map<string, number>();
-  const depth = (id: string): number => {
-    if (depths.has(id)) return depths.get(id)!;
-    const task = tasks.find(t=>t.id===id)!;
-    const value = task.dependencies.length ? Math.max(...task.dependencies.map(depth)) + 1 : 0;
-    depths.set(id, value); return value;
-  };
-  try { validateDag(tasks); } catch (e) { return <div className="alert">{readable(e)}</div>; }
-  const columns = new Map<number, number>();
-  const nodes = tasks.map(task => {
-    const x = depth(task.id), y = columns.get(x) || 0; columns.set(x, y + 1);
-    return { id: task.id, type: 'task', data: { task }, position: { x: x*270, y: y*140 } };
-  });
-  const edges = tasks.flatMap(t=>t.dependencies.map(id=>({id:id+'-'+t.id,source:id,target:t.id,style:{stroke:'#b2a1cc'}})));
-  return <div className="graph-wrap" aria-label="Execution dependency graph"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{padding:.18}} nodesDraggable={false} nodesConnectable={false} minZoom={.2}><Background gap={20} color="#eee8f4"/><Controls showInteractive={false}/></ReactFlow></div>;
-}, (previous, next) => JSON.stringify(previous.tasks) === JSON.stringify(next.tasks));
-
-function RoomView({ firebase, user, canEdit, organization, room, view, onInvite, onSignIn }: { firebase: Firebase; user: User | null; canEdit: boolean; organization: Organization; room: Room; view: string; onInvite: ()=>void; onSignIn: ()=>void }) {
+function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn }: { firebase: Firebase; user: User | null; canEdit: boolean; organization: Organization; room: Room; view: string; onSignIn: ()=>void }) {
   const [provider, setProvider] = useState<FirestoreDocument | null>(null);
   const [plan, setPlan] = useState('');
   const [tasks, setTasks] = useState<TaskSpec[]>([]);
@@ -94,6 +73,10 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onInvite,
   const [approval, setApproval] = useState<{ plan: string; tasks: TaskSpec[]; createdAt: {toDate:()=>Date} | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [people, setPeople] = useState<string[]>([]);
+  const [run, setRun] = useState<Run | null>(null);
+  const [showDraft, setShowDraft] = useState(false);
+  const [steering, setSteering] = useState<SteeringNote[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
   const cursor = useRef<{start:Y.RelativePosition;end:Y.RelativePosition} | null>(null);
@@ -120,6 +103,11 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onInvite,
       snapshot=>setMessages(snapshot.docs.map(d=>({id:d.id,...d.data()} as ChatMessage))),e=>setError(e.message));
     const stopApprovals = onSnapshot(query(collection(firebase.db,'rooms',room.id,'approvals'),orderBy('createdAt'),limitToLast(1)),
       snapshot=>setApproval(snapshot.empty ? null : snapshot.docs[0].data() as typeof approval),e=>setError(e.message));
+    const stopRuns = onSnapshot(query(collection(firebase.db,'rooms',room.id,'runs'),orderBy('createdAt'),limitToLast(1)),
+      snapshot=>setRun(snapshot.empty ? null : { ...snapshot.docs[0].data(), id: snapshot.docs[0].id } as Run),e=>setError(e.message));
+    const stopSteering = onSnapshot(collection(firebase.db,'rooms',room.id,'steering'), snapshot=>{
+      setSteering(snapshot.docs.map(item=>({ ...item.data(), id:item.id } as SteeringNote)).sort((a,b)=>(a.createdAt?.toMillis() ?? Infinity)-(b.createdAt?.toMillis() ?? Infinity)));
+    },e=>setError(e.message));
     const presenceDoc = canEdit && user ? doc(firebase.db,'rooms',room.id,'presence',crypto.randomUUID()) : null;
     const heartbeat = () => { if(presenceDoc&&user)void setDoc(presenceDoc,{uid:user.uid,name:user.displayName?.slice(0,100)||'Teammate',seenAt:serverTimestamp()}).catch(e=>setError(e.message)); };
     if(presenceDoc)heartbeat();
@@ -128,7 +116,7 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onInvite,
       const current = snapshot.docs.filter(d=>(d.data().seenAt?.toMillis() || 0)>Date.now()-45000).map(d=>d.data().name as string);
       setPeople([...new Set(current)]);
     },e=>setError(e.message));
-    return ()=>{ clearTimeout(remoteTimer); clearInterval(timer); stopChat(); stopApprovals(); stopPresence(); if(presenceDoc)void deleteDoc(presenceDoc).catch(()=>{}); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
+    return ()=>{ clearTimeout(remoteTimer); clearInterval(timer); stopChat(); stopApprovals(); stopRuns(); stopSteering(); stopPresence(); if(presenceDoc)void deleteDoc(presenceDoc).catch(()=>{}); p.destroy(); window.removeEventListener('beforeunload',beforeUnload); };
   }, [firebase, room.id, user, canEdit]);
   useEffect(()=>{chatEnd.current?.scrollIntoView({block:'nearest',behavior:'smooth'});},[messages]);
 
@@ -163,7 +151,10 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onInvite,
   }
   const unchanged = approval?.plan === plan && JSON.stringify(approval?.tasks) === JSON.stringify(tasks);
   const statusLabel = {connecting:'Connecting',saving:'Saving changes',saved:'All changes saved',offline:'Offline · reconnecting',error:'Changes need attention'}[sync];
-  const syncDetail = <span role="status"><span className="dot" style={{background:sync==='saved'?'#65a18a':'#c7a16a'}}/>{statusLabel}</span>;
+  const syncDetail = <span role="status"><span className={'dot '+(sync==='saved'?'':'loading')}/>{statusLabel}</span>;
+  const displayedRun = showDraft ? null : run;
+  const displayedTasks = displayedRun?.tasks ?? tasks;
+  const selectedTask = displayedTasks.find(task=>task.id===selectedId);
   return <>
     {view === 'plan' ? <div className="room-grid">
       <section className="chat-panel">
@@ -174,14 +165,17 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onInvite,
         {canEdit ? <form className="composer" onSubmit={event=>void submit(event)}><textarea aria-label="Message the room" placeholder={interview===null?'Share a thought with your team…':'Answer the interview question…'} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={8000} rows={2} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void submit(e);}}}/><div className="composer-footer"><span><Hash size={10} className="inline mr-1"/> {interview===null?'Shared with everyone in this room':'Added to the plan'}</span><Button type="submit" size="icon" className="h-7 w-7" disabled={busy||!draft.trim()||!ready} aria-label="Send message"><Send size={12}/></Button></div></form> : <div className="welcome-note mt-5"><strong>Public view · read only</strong>CoCo Co members can sign in to edit the plan and join the conversation.{!user&&<Button variant="outline" size="sm" className="mt-3" onClick={onSignIn}>Member sign-in <ArrowRight size={12}/></Button>}</div>}
       </section>
       <section className="plan-panel"><div className="panel-heading"><h2><FileText size={14}/> Shared plan</h2><Badge variant="secondary" className="text-[9px] font-normal">{unchanged?'Approved snapshot':'Working draft'}</Badge></div>
-        <div className={'paper '+(remoteName?'remote-edit':'')}><div className="paper-toolbar"><span><FileText size={11} className="inline mr-1"/> plan.md</span>{remoteName?<span style={{color:'#8b62b1'}}>{remoteName} is editing</span>:syncDetail}</div><textarea ref={editor} aria-label="Shared plan" className="plan-editor" value={plan} disabled={!ready} readOnly={!canEdit} maxLength={120000} spellCheck={false} onSelect={captureCursor} onChange={e=>{if(provider){cursor.current=null;replaceText(provider.document.getText('plan'),e.target.value);captureCursor();}}}/><div className="plan-footer"><span><Users size={10} className="inline mr-1"/> {organization.memberEmails.length} teammate{organization.memberEmails.length===1?'':'s'} · Yjs + Firestore</span><span>{plan.trim().split(/\s+/).filter(Boolean).length} words</span></div></div>
+        <div className={'paper '+(remoteName?'remote-edit':'')}><div className="paper-toolbar"><span><FileText size={11} className="inline mr-1"/> plan.md</span>{remoteName?<span className="text-foreground">{remoteName} is editing</span>:syncDetail}</div><textarea ref={editor} aria-label="Shared plan" className="plan-editor" value={plan} disabled={!ready} readOnly={!canEdit} maxLength={120000} spellCheck={false} onSelect={captureCursor} onChange={e=>{if(provider){cursor.current=null;replaceText(provider.document.getText('plan'),e.target.value);captureCursor();}}}/><div className="plan-footer"><span><Users size={10} className="inline mr-1"/> {organization.memberEmails.length} teammate{organization.memberEmails.length===1?'':'s'} · editing together</span><span>{plan.trim().split(/\s+/).filter(Boolean).length} words</span></div></div>
         <p className="hint"><CheckCheck size={11} className="inline mr-1"/> Everyone can view this demo. Members edit one document and approve fixed snapshots.</p>
       </section>
-    </div> : <section className="control"><div className="flex justify-between gap-4 items-start"><div><div className="eyebrow mb-2">From plan to parallel work</div><h1>Execution control plane</h1><p>Review the task dependencies and approve a snapshot for the Linux workers.</p></div><Button variant="outline" size="sm" onClick={onInvite}><Users size={13}/> Members</Button></div>
-      <div className="status-row"><div className="status-card"><span>PLAN REVISION</span><strong>{unchanged?'Approved':approval?'Draft has changed':'Working draft'}</strong></div><div className="status-card"><span>TASKS IN THE DAG</span><strong>{tasks.length} tasks</strong></div><div className="status-card"><span>LINUX WORKERS</span><strong className="flex gap-2 items-center"><Terminal size={15}/> Not connected</strong></div></div>
-      <ExecutionGraph tasks={tasks}/><div className="flex justify-between gap-4 items-center mt-5"><p>Map tasks produce commits. Reduce tasks combine and verify their dependencies.<br/>The worker service will consume approved snapshots in the next milestone.</p><Button onClick={()=>void approve()} disabled={!canEdit||!ready||busy||sync!=='saved'||unchanged}><Check size={14}/>{unchanged?'Snapshot approved':'Approve plan'}</Button></div>
-      {approval && <p><CheckCheck size={12} className="inline mr-1"/> Latest approval: {approval.createdAt?.toDate().toLocaleString() || 'saving'} · awaiting worker connection</p>}
+    </div> : <section className="control">
+      <div className="control-heading"><div><div className="eyebrow mb-2">Plan → implement → review</div><h1>Implementation</h1><p>A clear path for every task. Open a node to inspect the work or give Codex direction.</p></div><Button onClick={()=>void approve()} disabled={!canEdit||!ready||busy||sync!=='saved'||unchanged}><Check size={14}/>{unchanged?'Plan approved':'Approve plan'}</Button></div>
+      <div className="execution-summary"><span><FileText size={13}/>{displayedRun?'Run snapshot':unchanged?'Approved snapshot':approval?'Draft has changed':'Working draft'}</span><span><GitBranch size={13}/>{displayedTasks.length} tasks</span><span><Terminal size={13}/>{run ? `${run.mode==='demo'?'Demo run':'Latest run'} · ${run.status}` : 'Awaiting worker connection'}</span></div>
+      {run && <div className="execution-scope" aria-label="Execution snapshot"><Button variant={!showDraft?'secondary':'ghost'} size="sm" aria-pressed={!showDraft} onClick={()=>{setShowDraft(false);setSelectedId(null);}}>Latest run</Button><Button variant={showDraft?'secondary':'ghost'} size="sm" aria-pressed={showDraft} onClick={()=>{setShowDraft(true);setSelectedId(null);}}>Working draft</Button><span>{showDraft?'Instructions for the next run':'Tasks from the approved run snapshot'}</span></div>}
+      <ExecutionGraph tasks={displayedTasks} run={displayedRun} notes={steering} selectedId={selectedId} onSelect={id=>{if(!displayedRun)setShowDraft(true);setSelectedId(id);}}/>
+      <div className="execution-caption"><p><GitBranch size={13}/> Map tasks build independently. Reduce tasks bring their results together.</p>{approval ? <span><CheckCheck size={12}/> Approved {approval.createdAt?.toDate().toLocaleString() || 'just now'}</span> : <span>Approve a snapshot when the plan is ready.</span>}</div>
     </section>}
+    {view==='control' && selectedTask && <TaskInspector key={selectedTask.id+'-'+(displayedRun?.id??'draft')} firebase={firebase} roomId={room.id} user={user} canEdit={canEdit} task={selectedTask} tasks={displayedTasks} run={displayedRun} notes={steering} onSelect={setSelectedId} onClose={()=>setSelectedId(null)} onSignIn={onSignIn}/>}
     {error && <div className="alert mx-6" role="alert">{error} {sync==='error'&&<Button size="sm" variant="outline" onClick={()=>{setError('');void provider?.flush();}}>Retry saving</Button>}</div>}
   </>;
 }
@@ -198,6 +192,13 @@ export function App({ firebase }: { firebase: Firebase }) {
   const [error,setError] = useState('');
   const [busy,setBusy] = useState(false);
   const [,setVerificationTick]=useState(0);
+  const [theme,setTheme]=useState(document.documentElement.dataset.theme==='light'?'light':'dark');
+  useEffect(()=>{
+    document.documentElement.dataset.theme=theme;
+    document.documentElement.classList.toggle('dark',theme==='dark');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme==='dark'?'#0a0a0a':'#fafafa');
+    try { localStorage.setItem('coco-theme',theme); } catch { /* Theme still works when storage is unavailable. */ }
+  },[theme]);
   const canEdit=!!user?.emailVerified && !!user.email && organization.memberEmails.includes(user.email.toLowerCase());
 
   useEffect(()=>onAuthStateChanged(firebase.auth,setUser),[firebase]);
@@ -236,7 +237,7 @@ export function App({ firebase }: { firebase: Firebase }) {
     <aside className="sidebar">
       <Brand/>
       <div className="px-2"><div className="text-sm font-medium">{organization.name}</div><div className="hint !mt-1">Public hackathon workspace</div></div>
-      <Button variant="outline" size="sm" className="justify-start bg-white/70 text-xs" onClick={()=>openDialog('create')} disabled={!canEdit}><Plus size={13}/> New room</Button>
+      <Button variant="outline" size="sm" className="justify-start text-xs" onClick={()=>openDialog('create')} disabled={!canEdit}><Plus size={13}/> New room</Button>
       <div><div className="eyebrow">Org rooms <span className="float-right">{rooms.length}</span></div>
         <nav className="room-list" aria-label="Planning rooms">{rooms.map(r=><button className={'room-link '+(r.id===roomId?'active':'')} key={r.id} onClick={()=>navigate(r.id)}><MessageSquare size={13}/><span className="truncate">{r.title}</span></button>)}{!rooms.length&&<p className="hint">The demo room is getting ready.</p>}</nav>
       </div>
@@ -245,10 +246,10 @@ export function App({ firebase }: { firebase: Firebase }) {
     </aside>
     <div className="workspace">
       <header className="topbar"><div className="breadcrumb"><span>{organization.name}</span><span>/</span><strong>{room?.title||'Shared workspace'}</strong></div>
-        <div className="actions"><Badge variant="secondary" className="text-[9px]">Public demo</Badge>{!canEdit&&<Badge variant="outline" className="text-[9px]">Read only</Badge>}<Button variant="outline" size="sm" onClick={()=>openDialog('members')}><Users size={12}/> Members</Button>{!user&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Sign in</Button>}{user&&!user.emailVerified&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Verify email</Button>}</div>
+        <div className="actions"><Button variant="ghost" size="icon-sm" aria-label={theme==='dark'?'Switch to light mode':'Switch to dark mode'} onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?<Sun size={15}/>:<Moon size={15}/>}</Button><Badge variant="secondary" className="text-[9px]">Public demo</Badge>{!canEdit&&<Badge variant="outline" className="text-[9px]">Read only</Badge>}<Button variant="outline" size="sm" onClick={()=>openDialog('members')}><Users size={12}/> Members</Button>{!user&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Sign in</Button>}{user&&!user.emailVerified&&<Button size="sm" onClick={()=>setAuthOpen(true)}>Verify email</Button>}</div>
       </header>
-      {room?<><nav className="view-tabs" aria-label="Room views"><button className={'view-tab '+(view==='plan'?'selected':'')} onClick={()=>setView('plan')}><FileText size={13}/> Plan & conversation</button><button className={'view-tab '+(view==='control'?'selected':'')} onClick={()=>setView('control')}><LayoutDashboard size={13}/> Control plane <Badge variant="secondary" className="text-[8px] px-1.5 py-0">DAG</Badge></button></nav>
-        <RoomView key={room.id} firebase={firebase} user={user||null} canEdit={canEdit} organization={organization} room={room} view={view} onInvite={()=>openDialog('members')} onSignIn={()=>setAuthOpen(true)}/>
+      {room?<><nav className="view-tabs" aria-label="Room views"><button aria-current={view==='plan'?'page':undefined} className={'view-tab '+(view==='plan'?'selected':'')} onClick={()=>setView('plan')}><FileText size={13}/> Plan & conversation</button><button aria-current={view==='control'?'page':undefined} className={'view-tab '+(view==='control'?'selected':'')} onClick={()=>setView('control')}><GitBranch size={13}/> Implementation </button></nav>
+        <RoomView key={room.id} firebase={firebase} user={user||null} canEdit={canEdit} organization={organization} room={room} view={view} onSignIn={()=>setAuthOpen(true)}/>
       </>:<main className="empty"><div className="eyebrow">{organization.name} · public demo</div><h1>Think together.<br/>Build in parallel.</h1><p>A shared room for the conversation, a living plan for the details, and a clear path from idea to implementation. Browse the workspace freely; its two members can sign in to edit.</p>{canEdit?<Button onClick={()=>openDialog('create')}><Plus size={14}/> Create a planning room</Button>:<Button onClick={()=>setAuthOpen(true)}>Member sign-in <ArrowRight size={14}/></Button>}</main>}
       {error&&!dialog&&<div className="alert mx-6" role="alert">{error}</div>}
     </div>

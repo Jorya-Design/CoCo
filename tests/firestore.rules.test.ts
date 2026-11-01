@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { after, before, beforeEach, test } from 'node:test';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { Bytes, collection, doc, getDoc, getDocs, query, where, setDoc, updateDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { Bytes, collection, deleteDoc, doc, getDoc, getDocs, query, where, setDoc, updateDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { ORGANIZATION_MEMBERS } from '../shared/organization.ts';
 let env: RulesTestEnvironment;
 before(async()=>{env=await initializeTestEnvironment({projectId:'demo-coco',firestore:{host:'127.0.0.1',port:8080,rules:readFileSync('firestore.rules','utf8')}});});
@@ -90,4 +90,49 @@ test('presence belongs to its author and messages cannot impersonate members',as
   await assertSucceeds(setDoc(doc(client('bob'),'rooms','demo','presence','session'),{uid:'bob',name:'Bob',seenAt:serverTimestamp()}));
   await assertFails(setDoc(doc(client('alice'),'rooms','demo','presence','session'),{uid:'alice',name:'Alice',seenAt:serverTimestamp()}));
   await assertFails(setDoc(doc(client('bob'),'rooms','demo','messages','fake'),message('alice')));
+});
+
+const steering=(uid:string)=>({taskId:'interface',runId:null as string|null,text:'Use accessible controls',timing:'next',status:'queued',authorUid:uid,authorName:uid,createdAt:serverTimestamp()});
+test('steering is public to read and limited to verified members to create',async()=>{
+  const note=doc(client('alice'),'rooms','demo','steering','note');
+  await assertSucceeds(setDoc(note,steering('alice')));
+  await assertSucceeds(getDoc(doc(guest(),'rooms','demo','steering','note')));
+  await assertSucceeds(getDocs(collection(guest(),'rooms','demo','steering')));
+  await assertFails(setDoc(doc(guest(),'rooms','demo','steering','guest'),steering('guest')));
+  await assertFails(setDoc(doc(client('eve'),'rooms','demo','steering','outsider'),steering('eve')));
+  const unverified=env.authenticatedContext('alice',{email:email('alice'),email_verified:false}).firestore();
+  await assertFails(setDoc(doc(unverified,'rooms','demo','steering','unverified'),steering('alice')));
+  await assertFails(setDoc(doc(client('alice'),'rooms','unrelated','steering','note'),steering('alice')));
+});
+test('steering validates attribution, content, scope, and server-owned acknowledgement',async()=>{
+  const db=client('alice');
+  const invalid=[{authorUid:'bob'},{text:''},{text:'  \n\t'},{text:'x'.repeat(4001)},{taskId:''},{taskId:'x'.repeat(201)},{status:'applied'},{timing:'later'},{runId:'missing'},{timing:'now'},{extra:true}];
+  for(let index=0;index<invalid.length;index++) await assertFails(setDoc(doc(db,'rooms','demo','steering',String(index)),{...steering('alice'),...invalid[index]}));
+  await assertSucceeds(setDoc(doc(db,'rooms','demo','steering','multiline'),{...steering('alice'),text:'First line\nSecond line'}));
+});
+test('interrupt requests require a running run and queued instructions accept paused runs',async()=>{
+  await env.withSecurityRulesDisabled(async context=>{
+    for(const status of ['running','paused','completed','failed']) await setDoc(doc(context.firestore(),'rooms','demo','runs',status),{status});
+  });
+  const db=client('bob');
+  await assertSucceeds(setDoc(doc(db,'rooms','demo','steering','now'),{...steering('bob'),runId:'running',timing:'now'}));
+  await assertSucceeds(setDoc(doc(db,'rooms','demo','steering','next'),{...steering('bob'),runId:'paused'}));
+  for(const status of ['paused','completed','failed']) await assertFails(setDoc(doc(db,'rooms','demo','steering',status),{...steering('bob'),runId:status,timing:'now'}));
+  await assertFails(setDoc(doc(db,'rooms','demo','steering','finished-next'),{...steering('bob'),runId:'completed'}));
+});
+test('members can cancel requests but cannot edit, delete, apply, or revive them',async()=>{
+  const note=doc(client('alice'),'rooms','demo','steering','note');
+  await assertSucceeds(setDoc(note,steering('alice')));
+  await assertFails(updateDoc(doc(guest(),'rooms','demo','steering','note'),{status:'cancelled'}));
+  await assertFails(updateDoc(doc(client('eve'),'rooms','demo','steering','note'),{status:'cancelled'}));
+  await assertFails(updateDoc(note,{text:'Changed instruction'}));
+  await assertFails(updateDoc(note,{status:'applied'}));
+  await assertFails(updateDoc(note,{status:'rejected'}));
+  await assertFails(deleteDoc(note));
+  await assertSucceeds(updateDoc(doc(client('bob'),'rooms','demo','steering','note'),{status:'cancelled'}));
+  await assertFails(updateDoc(note,{status:'queued'}));
+  await env.withSecurityRulesDisabled(async context=>{
+    await setDoc(doc(context.firestore(),'rooms','demo','steering','applied'),{...steering('alice'),status:'applied'});
+  });
+  await assertFails(updateDoc(doc(client('alice'),'rooms','demo','steering','applied'),{status:'cancelled'}));
 });

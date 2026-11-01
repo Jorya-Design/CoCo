@@ -72,6 +72,31 @@ service cloud.firestore {
         allow read: if publicRoom(roomId);
         allow write: if false;
       }
+      match /steering/{noteId} {
+        function activeRun() {
+          return request.resource.data.runId is string
+            && exists(/databases/$(database)/documents/rooms/$(roomId)/runs/$(request.resource.data.runId))
+            && get(/databases/$(database)/documents/rooms/$(roomId)/runs/$(request.resource.data.runId)).data.status in ['running', 'paused'];
+        }
+        allow read: if publicRoom(roomId);
+        allow create: if orgMember() && publicRoom(roomId)
+          && request.resource.data.keys().hasOnly(['taskId', 'runId', 'text', 'timing', 'status', 'authorUid', 'authorName', 'createdAt'])
+          && request.resource.data.taskId is string && request.resource.data.taskId.size() > 0 && request.resource.data.taskId.size() <= 200
+          && (request.resource.data.runId == null || activeRun())
+          && request.resource.data.text is string && request.resource.data.text.matches('(?s).*[^\\s].*') && request.resource.data.text.size() <= 4000
+          && request.resource.data.timing in ['next', 'now']
+          && (request.resource.data.timing == 'next' || (activeRun()
+            && get(/databases/$(database)/documents/rooms/$(roomId)/runs/$(request.resource.data.runId)).data.status == 'running'))
+          && request.resource.data.status == 'queued'
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.authorName is string && request.resource.data.authorName.size() <= 100
+          && request.resource.data.createdAt == request.time;
+        // Members may cancel a queued request. Only the server acknowledges delivery.
+        allow update: if orgMember() && publicRoom(roomId)
+          && resource.data.status == 'queued' && request.resource.data.status == 'cancelled'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+        allow delete: if false;
+      }
     }
     match /{document=**} { allow read, write: if false; }
   }
