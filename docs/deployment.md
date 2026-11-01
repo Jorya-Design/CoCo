@@ -10,6 +10,19 @@
 Node 24.12+ and Java 21+ are required for the current SDK and emulator tooling.
 The repository pins dependencies in package-lock.json and CI actions by commit.
 
+Run `npm run test:rules` to validate Firestore policy against the Auth and
+Firestore emulators. The cross-platform runner uses the current Node executable
+and the demo project `demo-coco`; it never runs tests against production.
+Java must be on PATH or provided through JAVA_HOME. For a portable local runtime,
+extract Java 21 into `.coco/tools/java/<runtime>/bin/java.exe` on Windows (or
+`bin/java` on other platforms). That ignored location is detected automatically.
+Emulator downloads are cached in `.coco/emulators`. Keep ports 8080 and 9099
+available; the validator starts and stops its own emulator processes.
+
+The rules suite includes collaborator presence ownership, verified membership,
+activity field limits, public reads, rejected draft content, and session cleanup.
+CI runs the same command before any main-branch deployment.
+
 For local setup, follow the [root README](../README.md). Set
 VITE_USE_EMULATORS=true only in the local web app environment file.
 Production reads Firebase's public web-app configuration at runtime from Hosting.

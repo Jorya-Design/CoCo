@@ -136,7 +136,11 @@ service cloud.firestore {
       match /presence/{presenceId} {
         allow read: if publicRoom(roomId);
         allow create, update: if orgMember() && publicRoom(roomId)
-          && request.resource.data.keys().hasOnly(['uid', 'name', 'seenAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'seenAt', 'active', 'view', 'activity', 'taskId'])
+          && request.resource.data.get('active',true) is bool
+          && request.resource.data.get('view','plan') in ['plan','control']
+          && request.resource.data.get('activity','viewing') in ['viewing','typing','editing']
+          && (request.resource.data.get('taskId',null) == null || (request.resource.data.taskId is string && request.resource.data.taskId.size() <= 200))
           && request.resource.data.uid == request.auth.uid
           && (resource == null || resource.data.uid == request.auth.uid)
           && request.resource.data.name is string && request.resource.data.name.size() <= 100
