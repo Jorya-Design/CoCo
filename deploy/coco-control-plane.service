@@ -1,0 +1,21 @@
+[Unit]
+Description=CoCo worker authentication gateway
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=coco-plane
+Group=coco-plane
+WorkingDirectory=/opt/coco/current
+Environment=COCO_WORKER_REGISTRY_FILE=/etc/coco/control-plane/workers.json
+ExecStart=/usr/bin/env node --import tsx control-plane/main.ts
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+[Install]
+WantedBy=multi-user.target

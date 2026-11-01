@@ -216,6 +216,13 @@ the local tools' stores; none were added to this repo or GitHub Actions secrets.
 
 ## Linux workers: access not yet configured
 
+The authentication foundation is described in [Worker machine
+authentication](worker-machine-auth.md). It provides separate machine bearer
+credentials, hash-only control-plane verifiers, expiration/revocation, and a
+gated VM deployment workflow. Its lease authorization helper must be integrated
+with the future scheduler's transactional storage operations. No worker gateway
+or execution service is deployed by the existing Firebase Hosting workflow.
+
 No Linux worker service account, GitHub worker credential, repository-writing
 grant, or OpenAI inference credential has been provisioned by this setup.
 The future service needs a separate identity and an explicit grant design for

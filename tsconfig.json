@@ -4,5 +4,5 @@
     "strict": true, "esModuleInterop": true, "skipLibCheck": true,
     "allowImportingTsExtensions": true, "jsx": "react-jsx", "noEmit": true, "types": ["node"]
   },
-  "include": ["server", "shared", "worker", "tests", "scripts/*.ts"]
+  "include": ["server", "control-plane", "shared", "worker", "tests", "scripts/*.ts"]
 }

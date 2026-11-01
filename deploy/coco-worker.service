@@ -1,0 +1,22 @@
+[Unit]
+Description=CoCo authenticated worker supervisor connection
+After=network-online.target coco-control-plane.service
+Wants=network-online.target
+[Service]
+User=coco-worker
+Group=coco-worker
+WorkingDirectory=/opt/coco/current
+Environment=COCO_WORKER_TOKEN_FILE=/etc/coco/worker/token
+Environment=COCO_CONTROL_PLANE_URL=ws://127.0.0.1:8787
+ExecStart=/usr/bin/env node --import tsx worker/machine-client.ts
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+[Install]
+WantedBy=multi-user.target
