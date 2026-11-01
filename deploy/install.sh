@@ -43,8 +43,14 @@ install -m 0644 deploy/coco-worker.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable coco-control-plane coco-worker
 systemctl restart coco-control-plane coco-worker
-sleep 2
-systemctl is-active --quiet coco-control-plane coco-worker
-curl --fail --silent http://127.0.0.1:8787/healthz
+ready=false
+for attempt in {1..60}; do
+  if systemctl is-active --quiet coco-control-plane coco-worker && curl --fail --silent http://127.0.0.1:8787/healthz >/dev/null; then
+    ready=true
+    break
+  fi
+  sleep 1
+done
+[[ $ready == true ]] || { echo 'Control plane did not become healthy'; exit 1; }
 runuser -u coco-worker -- node scripts/check-worker-runtime.mjs
 echo 'CoCo Linux worker services deployed'
