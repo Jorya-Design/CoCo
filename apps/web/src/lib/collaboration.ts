@@ -104,11 +104,12 @@ export class FirestoreDocument {
     this.disposed = true;
     clearTimeout(this.cursorTimer);clearInterval(this.heartbeat);
     this.awareness.off('update',this.onAwareness);this.stopAwareness();this.awareness.destroy();
-    if(this.cursorDoc)void deleteDoc(this.cursorDoc).catch(()=>{});
-    void this.flush();
+    const removeCursor=this.cursorDoc ? deleteDoc(this.cursorDoc).catch(()=>{}) : Promise.resolve();
+    const flushed=this.flush();
     this.unsubscribe();
     window.removeEventListener('online', this.online);
     this.document.off('update', this.onUpdate);
     // Keep the document until any queued write settles. No edits happen after unmount.
+    return Promise.all([removeCursor,flushed]).then(()=>{});
   }
 }

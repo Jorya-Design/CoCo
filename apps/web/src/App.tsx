@@ -1,3 +1,6 @@
+import { PlanAgentActivity } from '@/components/plan-agent-activity';
+import { requestPlanAgent, decidePlanRequest, type PlanRequest } from '@/lib/plan-agent';
+import type { PlanMode } from '../../../shared/plan-agent.ts';
 import { CollaborativePlan } from '@/components/collaborative-plan';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, updateProfile, type OAuthCredential, type User } from 'firebase/auth';
@@ -107,6 +110,8 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   const [sync, setSync] = useState<SyncState>('connecting');
   const [ready, setReady] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatMode,setChatMode]=useState<'team'|PlanMode>('answer');
+  const [planRequests,setPlanRequests]=useState<PlanRequest[]>([]);
   const [chatDraft, setChatDraft] = useState('');
   const [interviewDraft, setInterviewDraft] = useState('');
   const [error, setError] = useState('');
@@ -193,6 +198,18 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
   }, [firebase, room.id, user, canEdit]);
   useEffect(()=>{chatEnd.current?.scrollIntoView({block:'nearest',behavior:'smooth'});},[messages]);
 
+  useEffect(()=>{
+    setPlanRequests([]);
+    if(!canEdit)return;
+    return onSnapshot(query(collection(firebase.db,'organizations','coco-co','planRequests'),where('roomId','==',room.id)),snapshot=>{
+      setPlanRequests(snapshot.docs.map(d=>({id:d.id,...d.data()} as PlanRequest)).sort((a,b)=>(a.createdAt?.toMillis()??Infinity)-(b.createdAt?.toMillis()??Infinity)).slice(-30));
+    },e=>setError(e.message));
+  },[firebase,room.id,canEdit]);
+  async function decideAgent(id:string,status:'apply_requested'|'rejected'|'cancelled') {
+    if(!user||!canEdit)return;
+    try {await provider?.flush();if(provider?.hasUnsavedChanges())throw new Error('Wait for your plan changes to save first.');await decidePlanRequest(firebase.db,user,id,status);}
+    catch(e){setError(readable(e));}
+  }
   function startInterview() {
     if(!canEdit||!ready||!historyReady||busy)return;
     if(!interview)setInterview(getInterviewPrompt(nextInterviewIndex(historyRef.current),historyRef.current));
@@ -207,7 +224,12 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
       if (interviewOpen && interview) {
         await sendInterviewAnswer(firebase.db,room.id,user,interview,draft,snapshotPlan);
         setInterview(getInterviewPrompt(Math.max(interview.index+1,nextInterviewIndex(historyRef.current)),historyRef.current));
-      } else await sendMessage(firebase.db,room.id,user,draft,snapshotPlan);
+      } else if(chatMode==='team') await sendMessage(firebase.db,room.id,user,draft,snapshotPlan,false);
+      else {
+        await provider.flush();
+        if(provider.hasUnsavedChanges())throw new Error('Wait for your plan changes to save before asking Codex.');
+        await requestPlanAgent(firebase.db,room.id,user,draft,chatMode);
+      }
       setDraft('');
       requestAnimationFrame(()=>composer.current?.focus({preventScroll:true}));
     } catch(e) { setError(readable(e)); } finally { setBusy(false); }
@@ -249,14 +271,14 @@ function RoomView({ firebase, user, canEdit, organization, room, view, onSignIn 
       <section className="chat-panel">
         <div className="panel-heading"><h2><MessageSquare size={14}/> Conversation</h2><span className="eyebrow" style={{fontSize:8}}>{people.length} here</span></div>
         <div className="chat-scroll"><div className="welcome-note"><strong><Sparkles size={13} className="inline mr-1"/> A good build starts with a conversation.</strong>Talk through the idea here. Shape the plan together, and use the interview to work through the details.<div className="mt-3"><Button variant="outline" size="sm" onClick={startInterview} disabled={!ready||!historyReady||!canEdit||busy||interviewOpen}><CircleHelp size={12}/> {history.length||interview?'Continue interview':'Grill me'}</Button></div></div>
-        {messages.map(message=><article className="message" key={message.id}><span className="avatar">{message.agent==='codex'?<Sparkles size={14}/>:initials(message.authorName)}</span><div><header><strong>{message.authorName}{message.agent==='codex'?' · AI':''}</strong><time>{message.createdAt?.toDate().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) || 'Sending'}</time></header>{message.agent==='codex'?<div className="markdown-content"><Markdown>{message.text}</Markdown></div>:<p>{message.text}</p>}{message.replyStatus==='queued'&&<small role="status">{workerCount?'Codex reply queued — waiting for the worker.':'Codex reply queued — worker offline.'}</small>}{message.replyStatus==='running'&&<small role="status">{workerCount?'Codex is replying…':'Codex connection interrupted — waiting for recovery.'}</small>}{message.replyStatus==='failed'&&<small role="status">{message.replyError}</small>}</div></article>)}<div ref={chatEnd}/></div>
+        {messages.map(message=><article className="message" key={message.id}><span className="avatar">{message.authorUid==='codex'?<Sparkles size={14}/>:initials(message.authorName)}</span><div><header><strong>{message.authorName}{message.authorUid==='codex'?' · AI':''}</strong><time>{message.createdAt?.toDate().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) || 'Sending'}</time></header>{message.authorUid==='codex'?<div className="markdown-content"><Markdown>{message.text}</Markdown></div>:<p>{message.text}</p>}{message.replyStatus==='queued'&&<small role="status">{workerCount?'Codex reply queued — waiting for the worker.':'Codex reply queued — worker offline.'}</small>}{message.replyStatus==='running'&&<small role="status">{workerCount?'Codex is replying…':'Codex connection interrupted — waiting for recovery.'}</small>}{message.replyStatus==='failed'&&<small role="status">{message.replyError}</small>}</div></article>)}<PlanAgentActivity requests={planRequests} online={!!workerCount} onDecision={decideAgent}/><div ref={chatEnd}/></div>
         {interviewOpen && interview && <div className="question" aria-live="polite"><div className="flex justify-between items-center"><span className="eyebrow">Guided interview · Question {interview.index+1}</span><Button variant="ghost" size="icon-xs" aria-label="Pause interview" disabled={busy} onClick={()=>setInterviewOpen(false)}><X size={13}/></Button></div><strong>{interview.title}</strong><p>{interview.question}</p><div className="hint">Your answer joins the history at the bottom of the plan. <a href="#interview-history">View history ↗</a></div></div>}
-        {canEdit ? <form className="composer" onSubmit={event=>void submit(event)}><textarea ref={composer} aria-label={interviewOpen?'Answer the interview question':'Message the room'} placeholder={interviewOpen?interview?.placeholder:'Share a thought with your team…'} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={8000} rows={3} readOnly={busy} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void submit(e);}}}/><div className="composer-footer"><span><Hash size={10} className="inline mr-1"/> {interviewOpen?'Saved in interview history':'Shared with everyone in this room'}</span><Button type="submit" size="icon" className="h-7 w-7" disabled={busy||!draft.trim()||!ready||(interviewOpen&&!historyReady)} aria-label={interviewOpen?'Save interview answer':'Send message'}>{busy?<LoaderCircle size={12} className="animate-spin"/>:<Send size={12}/>}</Button></div></form> : <div className="welcome-note mt-5"><strong>Public view · read only</strong>CoCo Co members can sign in to edit the plan and join the conversation.{!user&&<Button variant="outline" size="sm" className="mt-3" onClick={onSignIn}>Member sign-in <ArrowRight size={12}/></Button>}</div>}
+        {canEdit ? <form className="composer" onSubmit={event=>void submit(event)}>{!interviewOpen&&<div className="composer-mode"><label htmlFor="chat-mode">Send to</label><select id="chat-mode" value={chatMode} disabled={busy} onChange={e=>setChatMode(e.target.value as typeof chatMode)}><option value="answer">Codex · ask about the plan</option><option value="suggest">Codex · suggest changes</option><option value="edit">Codex · edit the plan</option><option value="team">Team only</option></select></div>}<textarea ref={composer} aria-label={interviewOpen?'Answer the interview question':'Message the room'} placeholder={interviewOpen?interview?.placeholder:chatMode==='team'?'Share a thought with your team…':chatMode==='edit'?'Tell Codex what to change in the plan…':'Ask Codex about the plan…'} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={8000} rows={3} readOnly={busy} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void submit(e);}}}/><div className="composer-footer"><span><Hash size={10} className="inline mr-1"/> {interviewOpen?'Saved in interview history':chatMode==='edit'?'Codex may edit the plan directly':chatMode==='suggest'?'Review changes before applying':chatMode==='answer'?'Codex sees the current plan & interview':'Shared with everyone in this room'}</span><Button type="submit" size="icon" className="h-7 w-7" disabled={busy||!draft.trim()||!ready||(interviewOpen&&!historyReady)} aria-label={interviewOpen?'Save interview answer':'Send message'}>{busy?<LoaderCircle size={12} className="animate-spin"/>:<Send size={12}/>}</Button></div></form> : <div className="welcome-note mt-5"><strong>Public view · read only</strong>CoCo Co members can sign in to edit the plan and join the conversation.{!user&&<Button variant="outline" size="sm" className="mt-3" onClick={onSignIn}>Member sign-in <ArrowRight size={12}/></Button>}</div>}
       </section>
       <section className="plan-panel"><div className="panel-heading"><h2><FileText size={14}/> Shared plan</h2><Badge variant="secondary" className="text-[9px] font-normal">{unchanged?'Approved snapshot':'Working draft'}</Badge></div>
         <div className={'paper '+(remoteName?'remote-edit':'')}>
           <div className="paper-toolbar"><span><FileText size={11} className="inline mr-1"/> plan.md</span><div className="paper-actions">{remoteName?<span className="text-foreground">{remoteName} is editing</span>:syncDetail}{canEdit&&<Button variant="ghost" size="sm" disabled={!ready} aria-pressed={editingPlan} onClick={()=>setEditingPlan(!editingPlan)}>{editingPlan?<Check size={12}/>:<Pencil size={12}/>} {editingPlan?'Done editing':'Edit plan'}</Button>}</div></div>
-          {editingPlan&&canEdit&&provider ? <CollaborativePlan provider={provider}/> : <article aria-label="Shared plan" className="plan-rendered markdown-content">{ready?<Markdown>{plan}</Markdown>:<p className="loading">Loading the plan…</p>}</article>}
+          {editingPlan&&canEdit&&provider ? <CollaborativePlan provider={provider} requests={planRequests}/> : <article aria-label="Shared plan" className="plan-rendered markdown-content">{ready?<Markdown>{plan}</Markdown>:<p className="loading">Loading the plan…</p>}</article>}
           <InterviewHistory history={history} loading={!historyReady} canContinue={canEdit&&ready&&historyReady&&!busy&&!interviewOpen} onContinue={startInterview}/>
           <div className="plan-footer"><span><Users size={10} className="inline mr-1"/> {organization.memberEmails.length} teammates · editing together</span><span>{wordCount} words{historyPending?' · Saving interview…':''}</span></div>
         </div>

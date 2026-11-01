@@ -24,6 +24,7 @@ export interface ExecutionJob extends LeaseKey {
   baseSha: string;
   dependencyCommits: string[];
   inferenceToken: string;
+  planning?: import('./plan-agent.ts').PlanAgentContext;
 }
 export interface ExecutionTask extends z.infer<typeof taskSpecSchema> {
   status: 'pending' | 'running' | 'completed' | 'failed';

@@ -6,7 +6,7 @@ import type { PlanningJob } from '../shared/planning.ts';
 export async function runContainer(job: ExecutionJob | PlanningJob, signal: AbortSignal, onThread?: (threadId:string)=>void): Promise<{success:boolean;output:string;commit?:string}> {
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(job.runId) || !/^[a-f0-9-]{36}$/.test(job.attemptId)) throw new Error('Invalid job');
   const root = `/var/lib/coco-worker/runs/${job.runId}`;
-  const planning = 'kind' in job && job.kind === 'planning';
+  const planning = ('kind' in job && job.kind === 'planning') || ('planning' in job && !!job.planning);
   if (!planning) await mkdir(root,{recursive:true,mode:0o700});
   const name = `coco-${job.attemptId}`;
   const child = spawn('docker',['run','--rm','--interactive','--name',name,'--network','coco-executor',

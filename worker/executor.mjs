@@ -3,14 +3,15 @@ import { spawn, execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
+import { planAgentPrompt, planOutputSchema } from '../shared/plan-prompt.ts';
 const execFile = promisify(execFileCallback);
 let raw = '';
 for await (const chunk of process.stdin) { raw += chunk; if(raw.length>300000)throw new Error('Job too large'); }
 const job = JSON.parse(raw);
-const planning = job.kind === 'planning';
-if (!/^[a-zA-Z0-9_-]{1,128}$/.test(job.runId) || !/^[a-f0-9-]{36}$/.test(job.attemptId)) throw new Error('Invalid job');
-if (planning && (typeof job.prompt !== 'string' || job.prompt.length > 200000)) throw new Error('Invalid planning prompt');
-if (!planning && (!/^[a-f0-9]{40}$/.test(job.baseSha)
+const planning=job.kind==='planning'||!!job.planning;
+if (!/^[a-zA-Z0-9_-]{1,128}$/.test(job.runId) || !/^[a-f0-9-]{36}$/.test(job.attemptId))throw new Error('Invalid job');
+if(job.kind==='planning' && (typeof job.prompt!=='string'||job.prompt.length>200000))throw new Error('Invalid prompt');
+if (job.kind!=='planning' && (!/^[a-zA-Z0-9_-]{1,128}$/.test(job.runId) || !/^[a-f0-9]{40}$/.test(job.baseSha)
   || !/^[a-zA-Z0-9_-]{1,64}$/.test(job.task.id) || !/^[a-f0-9-]{36}$/.test(job.attemptId)
   || !job.dependencyCommits.every(sha=>/^[a-f0-9]{40}$/.test(sha)))) throw new Error('Invalid job');
 const git = (...args) => execFile('git',['-c','core.hooksPath=/dev/null','-c','user.name=CoCo worker',
@@ -37,6 +38,7 @@ const completed = new Promise((resolve,reject)=>{resolveTurn=resolve;rejectTurn=
 // Attach a handler immediately; an early process failure must not be unhandled.
 void completed.catch(()=>{});
 let output='';
+let finalMessage='';
 const lines=createInterface({input:child.stdout});
 function send(message) { child.stdin.write(JSON.stringify(message)+'\n'); }
 function rpc(method,params) {
@@ -57,7 +59,8 @@ lines.on('line',line=>{
       // No interactive or host-side tool requests are accepted by this worker.
       send({id:message.id,error:{code:-32601,message:'Interactive requests are unavailable'}});
     } else if (message.method==='item/completed' && message.params?.item?.type==='agentMessage') {
-      output=(output+'\n'+message.params.item.text).slice(-15000);
+      finalMessage=message.params.item.text;
+      output=(output+'\n'+finalMessage).slice(-15000);
     } else if (message.method==='turn/completed') {
       if(message.params?.turn?.status==='completed')resolveTurn();else rejectTurn(new Error('Codex turn failed'));
     }
@@ -72,13 +75,19 @@ try {
   await rpc('initialize',{clientInfo:{name:'coco-worker',version:'0.1.0'}});
   send({method:'initialized',params:{}});
   const {thread}=await rpc('thread/start',{cwd,approvalPolicy:'never',sandbox:planning?'read-only':'danger-full-access',modelProvider:'coco',
-    ...(planning ? {baseInstructions:'You are Codex participating in a shared planning conversation. Reply with helpful discussion only. No tools, code execution, file edits, or deployment.'} : {}),
+    ...(planning ? {baseInstructions:'You are Codex collaborating on a shared plan. Return helpful discussion or the requested structured plan changes. Do not use tools, execute commands, edit files, or deploy.'} : {}),
     config:{'shell_environment_policy.exclude':['COCO_INFERENCE_TOKEN']}});
   console.log(JSON.stringify({type:'worker/thread',threadId:thread.id}));
   await rpc('turn/start',{threadId:thread.id,cwd,approvalPolicy:'never',sandboxPolicy:planning?{type:'readOnly'}:{type:'externalSandbox',networkAccess:'enabled'},
-    input:[{type:'text',text:planning ? job.prompt : `Implement this approved task in the current repository. Work only in the task worktree. Do not deploy or push. The supervisor will preserve your final changes as a commit. Report actual checks and limitations.\n\nTask: ${job.task.title}\n${job.task.description}\n\nApproved plan:\n${job.plan}`}]});
+    ...(job.planning ? {outputSchema:planOutputSchema} : {}),
+    input:[{type:'text',text:job.planning ? planAgentPrompt(job.plan,job.planning) : planning ? job.prompt : `Implement this approved task in the current repository. Work only in the task worktree. Do not deploy or push. The supervisor will preserve your final changes as a commit. Report actual checks and limitations.\n\nTask: ${job.task.title}\n${job.task.description}\n\nApproved plan:\n${job.plan}`}]});
   await completed;
-  if (planning) {
+  if(job.planning) {
+    const parsed=JSON.parse(finalMessage);
+    const result=JSON.stringify(parsed).split(job.inferenceToken).join('[redacted]');
+    if(result.length>16000)throw new Error('Plan reply too large');
+    console.log(JSON.stringify({success:true,output:result}));
+  } else if(planning) {
     console.log(JSON.stringify({success:!!output.trim(),output:output.split(job.inferenceToken).join('[redacted]')}));
   } else {
   await git('-C',cwd,'add','-A');

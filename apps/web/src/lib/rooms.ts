@@ -27,13 +27,13 @@ export async function createRoom(db: Firestore, user: User, title: string) {
   document.destroy();
   return room.id;
 }
-export async function sendMessage(db: Firestore, roomId: string, user: User, text: string, plan = '') {
+export async function sendMessage(db: Firestore, roomId: string, user: User, text: string, plan = '', respond = true) {
   const message = doc(collection(db, 'rooms', roomId, 'messages'));
   const batch = writeBatch(db);
   batch.set(message, {
     authorUid: user.uid, authorName: user.displayName?.slice(0, 100) || 'Teammate',
-    text: text.trim(), replyStatus:'queued', createdAt: serverTimestamp(),
+    text: text.trim(), ...(respond ? {replyStatus:'queued'} : {}), createdAt: serverTimestamp(),
   });
-  queuePlanningReply(batch,db,roomId,message.id,user,plan);
+  if(respond)queuePlanningReply(batch,db,roomId,message.id,user,plan);
   await batch.commit();
 }
