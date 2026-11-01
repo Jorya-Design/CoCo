@@ -2,11 +2,16 @@
 Description=CoCo worker authentication gateway
 After=network-online.target
 Wants=network-online.target
+Requires=docker.service coco-executor-firewall.service
 [Service]
 User=coco-plane
 Group=coco-plane
 WorkingDirectory=/opt/coco/current
 Environment=COCO_WORKER_REGISTRY_FILE=/etc/coco/control-plane/workers.json
+Environment=COCO_FIREBASE_PROJECT=coco-3471c
+Environment=COCO_HOST_NAME=coco-execution-1
+Environment=COCO_OPENAI_KEY_FILE=/etc/coco/control-plane/openai-key
+EnvironmentFile=/etc/coco/runtime.env
 ExecStart=/usr/bin/env node --import tsx control-plane/main.ts
 Restart=on-failure
 RestartSec=5
@@ -15,7 +20,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-IPAddressDeny=any
-IPAddressAllow=localhost
+# This trusted process uses the VM's short-lived Google credentials for Firestore.
+# The worker supervisor and executor have separate network restrictions.
 [Install]
 WantedBy=multi-user.target

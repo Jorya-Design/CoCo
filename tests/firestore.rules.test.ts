@@ -87,6 +87,31 @@ test('approvals are immutable and clients cannot forge worker execution',async()
   await assertFails(updateDoc(approval,{plan:'Changed after approval'}));
   await assertSucceeds(getDoc(doc(guest(),'rooms','demo','approvals','snapshot')));
 });
+
+test('worker health is public but only the trusted server can publish it',async()=>{
+  const path = ['organizations','coco-co','runtime','worker-health'] as const;
+  await assertSucceeds(getDoc(doc(guest(),...path)));
+  await assertFails(setDoc(doc(client('alice'),...path),{workers:['fake'],updatedAt:serverTimestamp()}));
+  await assertFails(setDoc(doc(guest(),...path),{workers:['fake']}));
+  await assertFails(getDoc(doc(guest(),'organizations','coco-co','runtime','credentials')));
+});
+
+test('only verified members queue immutable approved snapshots and may cancel their execution',async()=>{
+  const db=client('alice');
+  const approval=doc(db,'rooms','demo','approvals','approved');
+  await setDoc(approval,{approvedBy:'alice',plan:'Plan',tasks:[{id:'a'}],status:'approved',createdAt:serverTimestamp()});
+  const value={roomId:'demo',approvalId:'approved',requestedBy:'alice',requestedByEmail:email('alice'),status:'queued',createdAt:serverTimestamp()};
+  const path=['organizations','coco-co','executionRequests','request-1'] as const;
+  await assertFails(setDoc(doc(guest(),...path),value));
+  await assertFails(setDoc(doc(client('eve'),...path),{...value,requestedBy:'eve',requestedByEmail:email('eve')}));
+  await assertFails(setDoc(doc(db,...path),{...value,requestedByEmail:email('bob')}));
+  await assertFails(setDoc(doc(db,...path),{...value,approvalId:'missing'}));
+  await assertSucceeds(setDoc(doc(db,...path),value));
+  await assertFails(updateDoc(doc(db,...path),{status:'completed'}));
+  await assertFails(updateDoc(doc(db,...path),{approvalId:'different'}));
+  await assertSucceeds(updateDoc(doc(client('bob'),...path),{status:'cancelled'}));
+  await assertFails(setDoc(doc(db,'workerLeases','worker-1'),{status:'active'}));
+});
 test('presence belongs to its author and messages cannot impersonate members',async()=>{
   await assertSucceeds(setDoc(doc(client('bob'),'rooms','demo','presence','session'),{uid:'bob',name:'Bob',seenAt:serverTimestamp()}));
   await assertFails(setDoc(doc(client('alice'),'rooms','demo','presence','session'),{uid:'alice',name:'Alice',seenAt:serverTimestamp()}));

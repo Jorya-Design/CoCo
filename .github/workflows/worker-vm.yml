@@ -1,19 +1,30 @@
 name: Worker VM
 on:
   workflow_dispatch:
+  pull_request:
+    paths: ['control-plane/**', 'worker/**', 'shared/**', 'scripts/**', 'deploy/**', '.github/workflows/worker-vm.yml', 'package*.json']
   push:
     branches: [main]
-    paths: ['control-plane/**', 'worker/**', 'scripts/*worker*', 'deploy/**', '.github/workflows/worker-vm.yml', 'package*.json']
+    paths: ['control-plane/**', 'worker/**', 'shared/**', 'scripts/*worker*', 'deploy/**', '.github/workflows/worker-vm.yml', 'package*.json']
 permissions:
   contents: read
 concurrency:
   group: worker-vm-production
   cancel-in-progress: false
 jobs:
+  container:
+    name: Codex container protocol
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: docker build --file deploy/Dockerfile.executor --tag coco-executor:test .
+      - run: node scripts/check-codex-container.mjs
   deploy:
+    needs: container
     if: github.ref == 'refs/heads/main' && vars.COCO_VM_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     environment: production
     permissions:
       contents: read
@@ -37,6 +48,7 @@ jobs:
           COCO_WORKER_ID: ${{ vars.COCO_WORKER_ID }}
           COCO_WORKER_TOKEN: ${{ secrets.COCO_WORKER_TOKEN }}
           COCO_WORKER_TOKEN_EXPIRES_AT: ${{ vars.COCO_WORKER_TOKEN_EXPIRES_AT }}
+          COCO_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           workload_identity_provider: projects/375045542679/locations/global/workloadIdentityPools/coco-github/providers/github
@@ -50,7 +62,7 @@ jobs:
           umask 077
           bundle="$RUNNER_TEMP/coco-${GITHUB_SHA}.tgz"
           trap 'rm -f "$bundle"; rm -rf .coco/credentials' EXIT
-          tar -czf "$bundle" package.json package-lock.json apps/web/package.json control-plane worker scripts/prepare-worker-credentials.ts deploy .coco/credentials
+          tar -czf "$bundle" .dockerignore package.json package-lock.json apps/web/package.json control-plane worker shared scripts/prepare-worker-credentials.ts deploy .coco/credentials
           gcloud compute scp "$bundle" "$COCO_VM_NAME:/tmp/coco-${GITHUB_SHA}.tgz" --project="$COCO_PROJECT" --zone="$COCO_VM_ZONE" --tunnel-through-iap --quiet
           gcloud compute ssh "$COCO_VM_NAME" --project="$COCO_PROJECT" --zone="$COCO_VM_ZONE" --tunnel-through-iap --quiet --command="sudo bash -c 'set -euo pipefail; umask 077; trap \"rm -f /tmp/coco-${GITHUB_SHA}.tgz; rm -rf /opt/coco/install-${GITHUB_SHA}/.coco\" EXIT; mkdir -p /opt/coco/install-${GITHUB_SHA}; tar -xzf /tmp/coco-${GITHUB_SHA}.tgz -C /opt/coco/install-${GITHUB_SHA}; bash /opt/coco/install-${GITHUB_SHA}/deploy/install.sh ${GITHUB_SHA}'"
       - name: Remove temporary credentials

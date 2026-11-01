@@ -2,12 +2,17 @@
 Description=CoCo authenticated worker supervisor connection
 After=network-online.target coco-control-plane.service
 Wants=network-online.target
+Requires=docker.service coco-executor-firewall.service
 [Service]
 User=coco-worker
 Group=coco-worker
 WorkingDirectory=/opt/coco/current
 Environment=COCO_WORKER_TOKEN_FILE=/etc/coco/worker/token
 Environment=COCO_CONTROL_PLANE_URL=ws://127.0.0.1:8787
+EnvironmentFile=/etc/coco/runtime.env
+SupplementaryGroups=docker
+StateDirectory=coco-worker
+ReadWritePaths=/var/lib/coco-worker
 ExecStart=/usr/bin/env node --import tsx worker/machine-client.ts
 Restart=on-failure
 RestartSec=5

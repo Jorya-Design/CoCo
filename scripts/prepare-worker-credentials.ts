@@ -12,4 +12,7 @@ const registry = parseRegistry({ workers: [{ id, tokens: [{ sha256: hashToken(to
 await mkdir(output, { recursive: true, mode: 0o700 });
 await writeFile(join(output, 'worker-token'), token + '\n', { mode: 0o600 });
 await writeFile(join(output, 'worker-registry.json'), JSON.stringify(registry) + '\n', { mode: 0o600 });
+if (process.env.COCO_OPENAI_API_KEY) {
+  await writeFile(join(output,'openai-key'),process.env.COCO_OPENAI_API_KEY.trim()+'\n',{mode:0o600});
+}
 console.log('Prepared matching worker credential and control-plane verifier (values redacted)');

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/web"],
+  "workspaces": [
+    "apps/web"
+  ],
   "scripts": {
     "dev": "npm run dev -w apps/web",
     "build": "npm run build -w apps/web",
@@ -11,9 +13,9 @@
     "emulators": "firebase emulators:start --project demo-coco",
     "seed:emulators": "node scripts/seed-emulators.mjs && node --import tsx scripts/seed-organization.ts --emulator",
     "seed:organization": "node --import tsx scripts/seed-organization.ts",
-    "test:rules": "firebase emulators:exec --only auth,firestore --project demo-coco 'node --import tsx --test --test-concurrency=1 tests/firestore.rules.test.ts tests/auth.emulator.test.ts'",
+    "test:rules": "firebase emulators:exec --only auth,firestore --project demo-coco 'node --import tsx --test --test-concurrency=1 tests/firestore.rules.test.ts tests/auth.emulator.test.ts tests/scheduler.test.ts'",
     "typecheck": "tsc --noEmit && npm run typecheck -w apps/web",
-    "test": "node --import tsx --test tests/plan.test.ts tests/crdt.test.ts tests/execution.test.ts tests/auth.test.ts tests/interview.test.ts tests/markdown.test.ts tests/worker-auth.test.ts",
+    "test": "node --import tsx --test tests/plan.test.ts tests/crdt.test.ts tests/execution.test.ts tests/auth.test.ts tests/interview.test.ts tests/markdown.test.ts tests/worker-auth.test.ts tests/runtime-health.test.ts tests/inference-proxy.test.ts",
     "control-plane": "node --import tsx control-plane/main.ts",
     "worker:connect": "node --import tsx worker/machine-client.ts",
     "worker:credentials": "node --import tsx scripts/prepare-worker-credentials.ts",
@@ -24,21 +26,26 @@
     "cookie": "^1.0.2",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "firebase-admin": "14.5.0",
     "ws": "^8.18.3",
     "yjs": "^13.6.27",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "6.0.0",
-    "firebase": "13.1.0",
-    "firebase-tools": "15.34.2",
     "@types/express": "^5.0.5",
     "@types/node": "^24.10.0",
     "@types/ws": "^8.18.1",
     "concurrently": "^9.2.1",
+    "firebase": "13.1.0",
+    "firebase-tools": "15.34.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   },
-  "overrides": {"@grpc/grpc-js": "^1.13.6"},
-  "engines": {"node": ">=24.12.0 <25"}
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6"
+  },
+  "engines": {
+    "node": ">=24.12.0 <25"
+  }
 }

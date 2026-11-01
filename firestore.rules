@@ -14,6 +14,26 @@ service cloud.firestore {
     match /organizations/coco-co {
       allow read: if true;
       allow write: if false;
+      match /runtime/worker-health {
+        allow read: if true;
+        allow write: if false;
+      }
+      match /executionRequests/{requestId} {
+        allow read: if orgMember();
+        allow create: if orgMember()
+          && request.resource.data.keys().hasOnly(['roomId','approvalId','requestedBy','requestedByEmail','status','createdAt'])
+          && request.resource.data.requestedBy == request.auth.uid
+          && request.resource.data.requestedByEmail == request.auth.token.email.lower()
+          && request.resource.data.roomId is string && request.resource.data.roomId.matches('^[a-zA-Z0-9_-]{1,128}$')
+          && request.resource.data.approvalId is string && request.resource.data.approvalId.matches('^[a-zA-Z0-9_-]{1,128}$')
+          && publicRoom(request.resource.data.roomId)
+          && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)/approvals/$(request.resource.data.approvalId)).data.status == 'approved'
+          && request.resource.data.status == 'queued' && request.resource.data.createdAt == request.time;
+        allow update: if orgMember() && resource.data.status in ['queued','running']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status == 'cancelled';
+        allow delete: if false;
+      }
     }
     match /rooms/{roomId} {
       allow read: if resource.data.get('orgId', '') == 'coco-co';
