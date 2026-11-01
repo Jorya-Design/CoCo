@@ -77,6 +77,8 @@ Never add inference keys or administrative credentials to the browser app.
 - rooms/{id}/presence: session heartbeats; clients ignore stale entries.
 - rooms/{id}/approvals: immutable plan text and task DAG snapshots.
 - rooms/{id}/runs: reserved for the server-owned worker control plane.
+- rooms/{id}/steering: task-scoped instructions and cancellation history; only
+  the worker service can acknowledge delivery. See [DAG inspection and steering](docs/steering.md).
 
 Yjs resolves concurrent edits; Firestore is the real-time transport and durable
 store. The browser keeps pending writes in Firebase's persistent local cache.
