@@ -15,7 +15,7 @@ const identity={workerId:'worker-1',tokenSha256:'a'.repeat(64)};
 const key=(job:LeaseKey):LeaseKey=>({roomId:job.roomId,runId:job.runId,attemptId:job.attemptId,fence:job.fence});
 const pullRequest=(job:Omit<ExecutionJob,'inferenceToken'>,commit='f'.repeat(40))=>verifiedPullRequest({
   number:42,url:'https://github.com/Jorya-Design/CoCo/pull/42',title:'Approved implementation',
-  headRefName:job.publication!.branch,baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false,
+  headRefName:job.publication!.branch,baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false,author:{login:'joryatm'},
 },job.runId,commit);
 async function finishImplementation() {
   for(let i=0;i<6;i++) {
@@ -77,7 +77,7 @@ test('publication waits for every independent DAG branch and collects all of the
     const job=await scheduler.claim(identity);assert.ok(job);assert.equal(job.publication,undefined);
     const commit=String(i+1).repeat(40);commits.push(commit);
     const fakePr=verifiedPullRequest({number:42,url:'https://github.com/Jorya-Design/CoCo/pull/42',title:'Too early',
-      headRefName:'codex/coco-run-1',baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false},job.runId,commit);
+      headRefName:'codex/coco-run-1',baseRefName:'main',headRefOid:commit,state:'OPEN',isDraft:false,isCrossRepository:false,author:{login:'joryatm'}},job.runId,commit);
     await assert.rejects(scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'Too early',commit,pullRequest:fakePr}),/Unexpected/);
     await scheduler.report(identity,{type:'worker/result',...key(job),success:true,output:'Checked',commit});
   }
