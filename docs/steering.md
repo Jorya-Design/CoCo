@@ -42,11 +42,11 @@ context. Only instructions matching the task and displayed run are shown.
 
 ## Worker integration boundary
 
-The deployed Firebase application has no Linux Codex scheduler yet. This change
-persists steering requests and reads run/thread details; it does not execute
-instructions or interrupt a Codex process. The UI keeps requests queued and
-labels the missing worker connection. An interrupt submission is described as
-requested until the server acknowledges it, never as successfully delivered.
+The Linux worker executes explicitly requested approved plans and publishes
+run/thread details. Steering delivery is a separate remaining integration:
+instructions stay queued, and this release does not inject them into a running
+Codex turn. An interrupt submission is described as requested until a server
+acknowledges it, never as successfully delivered. The inspector states this limit.
 
 The future scheduler must:
 

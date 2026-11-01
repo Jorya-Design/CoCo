@@ -8,7 +8,7 @@ export async function runContainer(job: ExecutionJob, signal: AbortSignal, onThr
   await mkdir(root,{recursive:true,mode:0o700});
   const name = `coco-${job.attemptId}`;
   const child = spawn('docker',['run','--rm','--interactive','--name',name,'--network','coco-executor',
-    '--read-only','--cap-drop','ALL','--security-opt','no-new-privileges',
+    '--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--sysctl','net.ipv6.conf.all.disable_ipv6=1',
     '--pids-limit','256','--memory','1536m','--cpus','1',
     '--user',`${process.getuid!()}:${process.getgid!()}`,'--tmpfs','/tmp:rw,nosuid,size=512m',
     '--mount',`type=bind,src=${root},dst=/work`,process.env.COCO_EXECUTOR_IMAGE ?? 'coco-executor:current'],

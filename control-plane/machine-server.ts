@@ -18,6 +18,9 @@ export function createMachineServer(registry: () => Promise<WorkerRegistry>, rec
       const identity = authenticateWorker(req.headers.authorization, await registry());
       if (req.method === 'GET' && req.url === '/worker/v1/identity') {
         res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ workerId: identity.workerId }));
+      } else if (req.method === 'GET' && req.url === '/worker/v1/status') {
+        res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({workerId:identity.workerId,
+          connected:[...sessions].some(([ws,session])=>ws.readyState===ws.OPEN && session.workerId===identity.workerId)}));
       } else res.writeHead(404).end();
     } catch {
       res.writeHead(401, { 'WWW-Authenticate': 'Bearer' }).end();

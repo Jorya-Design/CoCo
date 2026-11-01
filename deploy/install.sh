@@ -45,4 +45,5 @@ systemctl restart coco-control-plane coco-worker
 sleep 2
 systemctl is-active --quiet coco-control-plane coco-worker
 curl --fail --silent http://127.0.0.1:8787/healthz
-echo 'Machine authentication services deployed'
+runuser -u coco-worker -- node scripts/check-worker-runtime.mjs
+echo 'CoCo Linux worker services deployed'

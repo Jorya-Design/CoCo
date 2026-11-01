@@ -62,7 +62,7 @@ jobs:
           umask 077
           bundle="$RUNNER_TEMP/coco-${GITHUB_SHA}.tgz"
           trap 'rm -f "$bundle"; rm -rf .coco/credentials' EXIT
-          tar -czf "$bundle" .dockerignore package.json package-lock.json apps/web/package.json control-plane worker shared scripts/prepare-worker-credentials.ts deploy .coco/credentials
+          tar -czf "$bundle" .dockerignore package.json package-lock.json apps/web/package.json control-plane worker shared scripts/prepare-worker-credentials.ts scripts/check-worker-runtime.mjs deploy .coco/credentials
           gcloud compute scp "$bundle" "$COCO_VM_NAME:/tmp/coco-${GITHUB_SHA}.tgz" --project="$COCO_PROJECT" --zone="$COCO_VM_ZONE" --tunnel-through-iap --quiet
           gcloud compute ssh "$COCO_VM_NAME" --project="$COCO_PROJECT" --zone="$COCO_VM_ZONE" --tunnel-through-iap --quiet --command="sudo bash -c 'set -euo pipefail; umask 077; trap \"rm -f /tmp/coco-${GITHUB_SHA}.tgz; rm -rf /opt/coco/install-${GITHUB_SHA}/.coco\" EXIT; mkdir -p /opt/coco/install-${GITHUB_SHA}; tar -xzf /tmp/coco-${GITHUB_SHA}.tgz -C /opt/coco/install-${GITHUB_SHA}; bash /opt/coco/install-${GITHUB_SHA}/deploy/install.sh ${GITHUB_SHA}'"
       - name: Remove temporary credentials

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 const child=spawn('docker',['run','--rm','--interactive','--network','none','--read-only','--cap-drop','ALL',
   '--security-opt','no-new-privileges','--tmpfs','/tmp:rw,nosuid,size=64m','--env','HOME=/tmp',
-  '--env','CODEX_HOME=/tmp/codex','--entrypoint','codex',process.argv[2]??'coco-executor:test','app-server','--listen','stdio://'],{stdio:['pipe','pipe','pipe']});
+  '--env','CODEX_HOME=/tmp','--entrypoint','codex',process.argv[2]??'coco-executor:test','app-server','--listen','stdio://'],{stdio:['pipe','pipe','pipe']});
 const lines=createInterface({input:child.stdout});
 const timer=setTimeout(()=>{child.kill();process.exitCode=1;},30000);
 let initialized=false,thread=false;
