@@ -37,11 +37,16 @@ email verification, password reset, and Firebase-managed client sessions.
 Registration is self-service, but creating or verifying another account grants
 no editing access. A signed-in nonmember remains a read-only visitor.
 
-Google sign-in is deferred at the user's request. Follow-ups must be completed
-in this order:
+Google provider configuration was completed by a teammate and verified in the
+Firebase console: the provider is enabled and joryatm@gmail.com is saved as the
+support contact. The public-facing project name is still project-375045542679;
+changing it to CoCo remains in [#2](https://github.com/Jorya-Design/CoCo/issues/2).
 
-1. [#2: Configure joryatm@gmail.com as the Google support contact](https://github.com/Jorya-Design/CoCo/issues/2).
-2. [#3: Add Google sign-in for the CoCo Co members](https://github.com/Jorya-Design/CoCo/issues/3), dependent on #2.
+Google sign-in application integration remains deferred to
+[#3](https://github.com/Jorya-Design/CoCo/issues/3), after the remaining #2
+branding work. The current UI uses email/password; Google buttons, popup/redirect
+handling, and linking an existing email/password account are not implemented.
+Public read-only access and the two-member editing rules are already deployed.
 
 The public Firebase SDK configuration is loaded from Hosting's
 /__/firebase/init.json endpoint. Its API key identifies the app; Firestore rules
