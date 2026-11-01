@@ -49,6 +49,7 @@ test('scheduler claims dependency-ready tasks once and transfers the full ancest
   }
   const beforePublication=(await db.doc('rooms/room-1/runs/run-1').get()).data()!;
   assert.equal(beforePublication.status,'running');
+  assert.equal(beforePublication.implementationPlanId,'generated');
   assert.equal(beforePublication.tasks.length,6);
   assert.equal(beforePublication.publication,undefined);
   const publication=await scheduler.claim(identity);assert.ok(publication?.publication);

@@ -75,6 +75,7 @@ export class Scheduler {
           workerId:identity.workerId, expiresAt:Date.now()+leaseMs, status:'active', taskId:task.id,kind:publishing?'publication':'execution' };
         const assigned = {...task,status:'running' as const,attemptId,fence,workerId:identity.workerId,startedAt:Date.now()};
         tx.set(runRef,{...run,...(publishing ? {publication:assigned} : {tasks:run.tasks.map(entry=>entry.id===task.id ? assigned : entry)}),workerId:identity.workerId,approvalId:request.approvalId,
+          ...(snapshot.implementationPlanId ? {implementationPlanId:snapshot.implementationPlanId} : {}),
           ...(!runSnap.exists ? {createdAt:FieldValue.serverTimestamp()} : {}),updatedAt:FieldValue.serverTimestamp()});
         tx.update(candidate.ref,{status:'running'});
         tx.set(this.lease(identity.workerId),lease);

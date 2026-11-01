@@ -3,7 +3,7 @@ export interface User { id: string; name: string; email: string | null }
 export interface Message { id: string; role: 'user' | 'agent' | 'system'; name: string; text: string; at: number }
 export interface TaskSpec { id: string; title: string; description: string; kind: 'map' | 'reduce'; dependencies: string[] }
 export interface Task extends TaskSpec { status: TaskStatus; workerId?: string; threadId?: string; output?: string; error?: string; startedAt?: number; completedAt?: number; commit?: string }
-export interface Run { id: string; roomId: string; mode: 'demo' | 'live'; status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'; tasks: Task[]; plan: string; createdAt: number; events: RunEvent[]; publication?: Task; pullRequest?: import('./publication.ts').PullRequest }
+export interface Run { implementationPlanId?: string; id: string; roomId: string; mode: 'demo' | 'live'; status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'; tasks: Task[]; plan: string; createdAt: number; events: RunEvent[]; publication?: Task; pullRequest?: import('./publication.ts').PullRequest }
 export interface RunEvent { id: string; at: number; taskId?: string; text: string; level: 'info' | 'success' | 'error' }
 export interface Worker { id: string; name: string; lastSeen: number; status: 'idle' | 'working'; taskId?: string }
 export interface RoomSummary { id: string; title: string; createdAt: number }

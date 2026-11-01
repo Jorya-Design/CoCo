@@ -44,6 +44,7 @@ export interface ExecutionTask extends z.infer<typeof taskSpecSchema> {
   fence?: number; attemptId?: string; workerId?: string; commit?: string; output?: string; threadId?: string;
 }
 export interface ExecutionRun {
+  implementationPlanId?: string;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
   tasks: ExecutionTask[]; plan: string; baseSha: string; workerId?: string;
   publication?: ExecutionTask;
