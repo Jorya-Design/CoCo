@@ -34,6 +34,27 @@ service cloud.firestore {
           && request.resource.data.status == 'cancelled';
         allow delete: if false;
       }
+      match /planningRequests/{requestId} {
+        function pairedMessage() {
+          let roomId = request.resource.data.roomId;
+          let message = getAfter(/databases/$(database)/documents/rooms/$(roomId)/messages/$(requestId)).data;
+          return !exists(/databases/$(database)/documents/rooms/$(roomId)/messages/$(requestId))
+            && message.authorUid == request.auth.uid && message.createdAt == request.time;
+        }
+        allow read: if orgMember();
+        allow create: if orgMember()
+          && request.resource.data.keys().hasOnly(['roomId','messageId','requestedBy','requestedByEmail','plan','status','createdAt'])
+          && request.resource.data.messageId == requestId
+          && request.resource.data.roomId is string && request.resource.data.roomId.matches('^[a-zA-Z0-9_-]{1,128}$')
+          && requestId.matches('^[a-zA-Z0-9_-]{1,128}$')
+          && publicRoom(request.resource.data.roomId)
+          && request.resource.data.requestedBy == request.auth.uid
+          && request.resource.data.requestedByEmail == request.auth.token.email.lower()
+          && request.resource.data.plan is string && request.resource.data.plan.size() <= 60000
+          && request.resource.data.status == 'queued' && request.resource.data.createdAt == request.time
+          && pairedMessage();
+        allow update, delete: if false;
+      }
     }
     match /rooms/{roomId} {
       allow read: if resource.data.get('orgId', '') == 'coco-co';
@@ -60,7 +81,9 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read: if publicRoom(roomId);
         allow create: if orgMember() && publicRoom(roomId)
-          && request.resource.data.keys().hasOnly(['authorUid', 'authorName', 'text', 'createdAt'])
+          && !messageId.matches('^codex-.*')
+          && request.resource.data.keys().hasOnly(['authorUid', 'authorName', 'text', 'createdAt', 'replyStatus'])
+          && request.resource.data.get('replyStatus','queued') == 'queued'
           && request.resource.data.authorUid == request.auth.uid
           && request.resource.data.authorName is string && request.resource.data.authorName.size() <= 100
           && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 8000

@@ -20,6 +20,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - run: docker build --file deploy/Dockerfile.executor --tag coco-executor:test .
       - run: node scripts/check-codex-container.mjs
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: node --import tsx scripts/check-planning-container.mjs
   deploy:
     needs: container
     if: github.ref == 'refs/heads/main' && vars.COCO_VM_ENABLED == 'true'
